@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "356316104950",
+    "project_id": "fastmark-11cd7",
+    "storage_bucket": "fastmark-11cd7.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:356316104950:android:88c50b8de9cf90c53384d7",
+        "android_client_info": {
+          "package_name": "com.nduy17.fastmark"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBXEVywMc6Ej_qgt3RvKeaPzI29pYhpVEk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

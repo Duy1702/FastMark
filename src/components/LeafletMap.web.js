@@ -11,11 +11,12 @@ export default function LeafletMap({
   measureEnabled,
   clearSignal,
   recenterSignal,
+  restaurants,
   onEvent,
 }) {
   const iframeRef = useRef(null);
   const initialLocationRef = useRef(currentLocation);
-  const hasCenteredLocationRef = useRef(hasValidLocation(currentLocation));
+  const hasCenteredRef = useRef(false);
   const [ready, setReady] = useState(false);
 
   const html = useMemo(
@@ -49,22 +50,33 @@ export default function LeafletMap({
   }, [onEvent]);
 
   useEffect(() => {
-    if (!hasValidLocation(currentLocation)) {
+    if (!ready || !hasValidLocation(currentLocation)) {
       return;
     }
 
-    const shouldRecenter = !hasCenteredLocationRef.current;
-    hasCenteredLocationRef.current = true;
-    sendCommand({
-      type: 'location',
-      location: currentLocation,
-      recenter: shouldRecenter,
-    });
+    if (!hasCenteredRef.current) {
+      hasCenteredRef.current = true;
+      sendCommand({
+        type: 'location',
+        location: currentLocation,
+        recenter: true,
+      });
+    } else {
+      sendCommand({
+        type: 'location',
+        location: currentLocation,
+        recenter: false,
+      });
+    }
   }, [currentLocation, ready]);
 
   useEffect(() => {
     sendCommand({ type: 'measureMode', enabled: measureEnabled });
   }, [measureEnabled, ready]);
+
+  useEffect(() => {
+    sendCommand({ type: 'showRestaurants', restaurants });
+  }, [restaurants, ready]);
 
   useEffect(() => {
     if (clearSignal > 0) {
