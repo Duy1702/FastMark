@@ -2,6 +2,7 @@ import * as Google from 'expo-auth-session/providers/google';
 import { useEffect } from 'react';
 import { useDispatch } from 'react-redux';
 
+import { googleLogger as log } from '../../utils/logger';
 import {
   describeGoogleOAuthError,
   getGoogleBrowserAuthRequestConfig,
@@ -20,7 +21,10 @@ export default function GoogleSignInBrowserButton({ disabled, onError }) {
       return;
     }
 
+    log.info('browserResponse', googleResponse.type);
+
     if (googleResponse.type === 'error') {
+      log.fail('browserResponse:error', describeGoogleOAuthError(googleResponse));
       onError?.(describeGoogleOAuthError(googleResponse) || 'Đăng nhập Google thất bại.');
       return;
     }
@@ -35,17 +39,21 @@ export default function GoogleSignInBrowserButton({ disabled, onError }) {
       '';
 
     if (!idToken) {
+      log.warn('browserResponse:no-id-token');
       onError?.('Google không trả về id_token. Kiểm tra OAuth Client ID trên Google Cloud.');
       return;
     }
 
+    log.ok('browserResponse:id-token-received');
     dispatch(socialLogin({ token: idToken }));
   }, [googleResponse, dispatch, onError]);
 
   function handlePress() {
     onError?.('');
+    log.info('browserSignIn:pressed');
 
     if (!request) {
+      log.warn('browserSignIn:request-not-ready');
       onError?.('Google Sign-In đang khởi tạo. Thử lại sau vài giây.');
       return;
     }

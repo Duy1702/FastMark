@@ -7,6 +7,7 @@ import ProductDetailScreen from '../store/ProductDetailScreen';
 import StoreDetailScreen from '../store/StoreDetailScreen';
 import { calculateDistanceMeters, hasValidLocation, normalizeExpoLocation } from '../../utils/geo';
 import { fetchRestaurants } from '../../services/restaurantService';
+import { mapLogger as log } from '../../utils/logger';
 
 const TYPE_EMOJI = {
   cafe: '☕',
@@ -19,7 +20,7 @@ export default function MapScreen({ children }) {
   const watcherRef = useRef(null);
   const mountedRef = useRef(false);
   const [currentLocation, setCurrentLocation] = useState(null);
-  const [recenterSignal, setRecenterSignal] = useState(0);
+  const [recenterRequest, setRecenterRequest] = useState(null);
 
   const [menuVisible, setMenuVisible] = useState(false);
   const [selectedRadius, setSelectedRadius] = useState(500);
@@ -29,6 +30,7 @@ export default function MapScreen({ children }) {
   const lastAcceptedRef = useRef(null);
 
   const openStore = useCallback((storeId) => {
+    log.info('openStore', { storeId });
     setStoreNav({ screen: 'store', storeId: String(storeId) });
   }, []);
 
@@ -65,11 +67,13 @@ export default function MapScreen({ children }) {
       const prev = lastAcceptedRef.current;
       if (!prev) {
         lastAcceptedRef.current = loc;
+        log.ok('location:first-fix', { lat: loc.latitude, lng: loc.longitude, accuracy: loc.accuracy });
         setCurrentLocation(loc);
         return;
       }
 
       if (loc.accuracy > 150) {
+        log.debug('location:skip-low-accuracy', { accuracy: loc.accuracy });
         return;
       }
 
@@ -79,15 +83,20 @@ export default function MapScreen({ children }) {
       }
 
       lastAcceptedRef.current = loc;
+      log.debug('location:update', { lat: loc.latitude, lng: loc.longitude, dist });
       setCurrentLocation(loc);
     };
 
     try {
+      log.info('location:request-permission');
       const permission = await Location.requestForegroundPermissionsAsync();
 
       if (!mountedRef.current || permission.status !== 'granted') {
+        log.warn('location:permission-denied', { status: permission.status });
         return;
       }
+
+      log.ok('location:permission-granted');
 
       const lastKnown = await Location.getLastKnownPositionAsync({
         maxAge: 60000,
@@ -122,8 +131,8 @@ export default function MapScreen({ children }) {
       } else {
         watcher.remove();
       }
-    } catch {
-      // Keep the map usable even when location services are unavailable.
+    } catch (error) {
+      log.fail('location:tracking-failed', error);
     }
   }, []);
 
@@ -145,10 +154,14 @@ export default function MapScreen({ children }) {
     }
 
     let isCurrent = true;
+    log.info('fetchRestaurants:map', { category: selectedCategory });
     fetchRestaurants(selectedCategory).then((data) => {
       if (isCurrent) {
+        log.ok('fetchRestaurants:map-loaded', { category: selectedCategory, count: data.length });
         setRestaurants(data);
       }
+    }).catch((error) => {
+      log.fail('fetchRestaurants:map-failed', error);
     });
 
     return () => {
@@ -178,16 +191,62 @@ export default function MapScreen({ children }) {
       ? { center: currentLocation, radius: selectedRadius }
       : null;
 
+  function requestRecenter(location) {
+    lastAcceptedRef.current = location;
+    setCurrentLocation(location);
+    setRecenterRequest({ location, at: Date.now() });
+  }
+
   function handleRecenterPress() {
-    if (hasValidLocation(currentLocation)) {
-      setRecenterSignal((value) => value + 1);
-      return;
+    log.info('recenter:pressed');
+
+    const cached = lastAcceptedRef.current || currentLocation;
+    if (hasValidLocation(cached)) {
+      requestRecenter(cached);
+      log.info('recenter:instant', { lat: cached.latitude, lng: cached.longitude });
     }
 
-    startLocationTracking();
+    Location.getForegroundPermissionsAsync()
+      .then(async (permission) => {
+        if (permission.status !== 'granted') {
+          const requested = await Location.requestForegroundPermissionsAsync();
+          if (requested.status !== 'granted') {
+            return null;
+          }
+        }
+
+        const lastKnown = await Location.getLastKnownPositionAsync({
+          maxAge: 30000,
+          requiredAccuracy: 500,
+        }).catch(() => null);
+
+        if (lastKnown) {
+          return normalizeExpoLocation(lastKnown);
+        }
+
+        return Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        }).then(normalizeExpoLocation);
+      })
+      .then((loc) => {
+        if (loc && hasValidLocation(loc)) {
+          requestRecenter(loc);
+          log.debug('recenter:gps-refined', { lat: loc.latitude, lng: loc.longitude });
+        } else if (!hasValidLocation(cached)) {
+          log.warn('recenter:no-location-restart-tracking');
+          startLocationTracking();
+        }
+      })
+      .catch((error) => {
+        log.fail('recenter:gps-failed', error);
+        if (!hasValidLocation(cached)) {
+          startLocationTracking();
+        }
+      });
   }
 
   const handleMapEvent = useCallback((payload) => {
+    log.debug('mapEvent', payload?.type, payload);
     if (payload?.type === 'restaurantTap' && payload.restaurant?.id != null) {
       openStore(payload.restaurant.id);
     }
@@ -235,83 +294,89 @@ export default function MapScreen({ children }) {
 
   return (
     <View style={styles.container}>
-      <View style={styles.topControls}>
+      <View style={styles.mapArea} pointerEvents="box-none">
+        <LeafletMap
+          currentLocation={currentLocation}
+          radiusCircle={radiusCircleProp}
+          recenterRequest={recenterRequest}
+          restaurants={visibleRestaurants}
+          onEvent={handleMapEvent}
+        />
+
         <Pressable
           accessibilityRole="button"
+          accessibilityLabel="Bộ lọc bản đồ"
+          pointerEvents="auto"
           style={({ pressed }) => [
-            styles.menuButton,
-            pressed && styles.menuButtonPressed,
-            menuVisible && styles.menuButtonActive,
+            styles.mapFab,
+            styles.settingsFab,
+            pressed && styles.mapFabPressed,
+            menuVisible && styles.settingsFabActive,
           ]}
           onPress={() => setMenuVisible(!menuVisible)}
         >
-          <Text style={[styles.menuButtonText, menuVisible && styles.menuButtonTextActive]}>
+          <Text style={[styles.settingsFabIcon, menuVisible && styles.settingsFabIconActive]}>
             {menuVisible ? '✕' : '⚙️'}
           </Text>
         </Pressable>
 
+        {menuVisible && (
+          <View style={styles.filterPanel} pointerEvents="auto">
+            <ScrollView showsVerticalScrollIndicator={false} bounces={false}>
+              <Text style={styles.menuHeader}>Bộ lọc bản đồ</Text>
+
+              <Text style={styles.menuSubHeader}>Bán kính hiển thị</Text>
+              {radiusOptions.map((opt) => {
+                const isSelected = selectedRadius === opt.key;
+                return (
+                  <Pressable
+                    key={String(opt.key)}
+                    style={[styles.categoryItem, isSelected && styles.categoryItemActive]}
+                    onPress={() => setSelectedRadius(opt.key)}
+                  >
+                    <Text style={[styles.categoryText, isSelected && styles.categoryTextActive]}>
+                      {opt.label}
+                    </Text>
+                    {isSelected && <Text style={styles.checkmark}>✓</Text>}
+                  </Pressable>
+                );
+              })}
+
+              <View style={styles.divider} />
+
+              <Text style={styles.menuSubHeader}>Loại quán</Text>
+              {restaurantCategories.map((cat) => {
+                const isSelected = selectedCategory === cat.key;
+                return (
+                  <Pressable
+                    key={cat.key}
+                    style={[styles.categoryItem, isSelected && styles.categoryItemActive]}
+                    onPress={() => setSelectedCategory(cat.key)}
+                  >
+                    <Text style={[styles.categoryText, isSelected && styles.categoryTextActive]}>
+                      {cat.label}
+                    </Text>
+                    {isSelected && <Text style={styles.checkmark}>✓</Text>}
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </View>
+        )}
+
         <Pressable
           accessibilityRole="button"
+          accessibilityLabel="Về vị trí của tôi"
+          pointerEvents="auto"
           style={({ pressed }) => [
             styles.recenterButton,
-            pressed && styles.recenterButtonPressed,
+            pressed && styles.mapFabPressed,
           ]}
           onPress={handleRecenterPress}
         >
           <Text style={styles.recenterButtonText}>Về vị trí của tôi</Text>
         </Pressable>
-      </View>
 
-      {menuVisible && (
-        <View style={styles.dropdownCard}>
-          <Text style={styles.menuHeader}>Bộ lọc bản đồ</Text>
-
-          <Text style={styles.menuSubHeader}>Bán kính hiển thị</Text>
-          {radiusOptions.map((opt) => {
-            const isSelected = selectedRadius === opt.key;
-            return (
-              <Pressable
-                key={String(opt.key)}
-                style={[styles.categoryItem, isSelected && styles.categoryItemActive]}
-                onPress={() => setSelectedRadius(opt.key)}
-              >
-                <Text style={[styles.categoryText, isSelected && styles.categoryTextActive]}>
-                  {opt.label}
-                </Text>
-                {isSelected && <Text style={styles.checkmark}>✓</Text>}
-              </Pressable>
-            );
-          })}
-
-          <View style={styles.divider} />
-
-          <Text style={styles.menuSubHeader}>Loại quán</Text>
-          {restaurantCategories.map((cat) => {
-            const isSelected = selectedCategory === cat.key;
-            return (
-              <Pressable
-                key={cat.key}
-                style={[styles.categoryItem, isSelected && styles.categoryItemActive]}
-                onPress={() => setSelectedCategory(cat.key)}
-              >
-                <Text style={[styles.categoryText, isSelected && styles.categoryTextActive]}>
-                  {cat.label}
-                </Text>
-                {isSelected && <Text style={styles.checkmark}>✓</Text>}
-              </Pressable>
-            );
-          })}
-        </View>
-      )}
-
-      <View style={styles.mapArea}>
-        <LeafletMap
-          currentLocation={currentLocation}
-          radiusCircle={radiusCircleProp}
-          recenterSignal={recenterSignal}
-          restaurants={visibleRestaurants}
-          onEvent={handleMapEvent}
-        />
         {children}
       </View>
 
@@ -355,19 +420,10 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#eef2f0',
   },
-  topControls: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 10,
-    backgroundColor: '#eef2f0',
-  },
   mapArea: {
     flex: 1,
     minHeight: 260,
+    position: 'relative',
   },
   nearbyPanel: {
     backgroundColor: '#ffffff',
@@ -416,29 +472,9 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#0f766e',
   },
-  recenterButton: {
-    minHeight: 44,
-    borderRadius: 999,
-    paddingHorizontal: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#0ea5e9',
-    shadowColor: '#0ea5e9',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.28,
-    shadowRadius: 10,
-    elevation: 6,
-    flex: 1,
-  },
-  recenterButtonPressed: {
-    opacity: 0.78,
-  },
-  recenterButtonText: {
-    color: '#ffffff',
-    fontSize: 15,
-    fontWeight: '800',
-  },
-  menuButton: {
+  mapFab: {
+    position: 'absolute',
+    right: 14,
     width: 44,
     height: 44,
     borderRadius: 22,
@@ -446,33 +482,67 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: '#ffffff',
     shadowColor: '#0f172a',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 4,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.18,
+    shadowRadius: 6,
+    elevation: 6,
+    zIndex: 20,
   },
-  menuButtonPressed: {
+  mapFabPressed: {
     opacity: 0.85,
   },
-  menuButtonActive: {
+  settingsFab: {
+    top: '42%',
+  },
+  settingsFabActive: {
     backgroundColor: '#0f766e',
   },
-  menuButtonText: {
+  settingsFabIcon: {
     fontSize: 20,
     color: '#0f172a',
   },
-  menuButtonTextActive: {
+  settingsFabIconActive: {
     color: '#ffffff',
     fontSize: 16,
     fontWeight: 'bold',
   },
-  dropdownCard: {
-    marginHorizontal: 16,
-    marginBottom: 10,
+  recenterButton: {
+    position: 'absolute',
+    right: 14,
+    bottom: 14,
+    minHeight: 38,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#0ea5e9',
+    shadowColor: '#0f172a',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.16,
+    shadowRadius: 4,
+    elevation: 5,
+    zIndex: 20,
+  },
+  recenterButtonText: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  filterPanel: {
+    position: 'absolute',
+    right: 66,
+    top: '24%',
+    width: 240,
+    maxHeight: '52%',
     borderRadius: 12,
     backgroundColor: '#ffffff',
     padding: 12,
-    elevation: 4,
+    shadowColor: '#0f172a',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.18,
+    shadowRadius: 10,
+    elevation: 8,
+    zIndex: 25,
   },
   menuHeader: {
     fontSize: 15,

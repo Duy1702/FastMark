@@ -12,6 +12,7 @@ import { fetchProductById } from '../../services/productService';
 import { fetchStoreById } from '../../services/storeService';
 import ContactActions from './components/ContactActions';
 import StarRating from './components/StarRating';
+import { storeLogger as log } from '../../utils/logger';
 
 function formatPrice(price) {
   return `${Number(price).toLocaleString('vi-VN')}đ`;
@@ -26,15 +27,27 @@ export default function ProductDetailScreen({ productId, onBack, onStorePress })
     let isCurrent = true;
     setLoading(true);
 
-    fetchProductById(productId).then(async (productData) => {
-      if (!isCurrent) return;
-      setProduct(productData);
-      if (productData?.store_id) {
-        const storeData = await fetchStoreById(productData.store_id);
-        if (isCurrent) setStore(storeData);
-      }
-      setLoading(false);
-    });
+    log.info('ProductDetailScreen:load', { productId });
+
+    fetchProductById(productId)
+      .then(async (productData) => {
+        if (!isCurrent) return;
+        setProduct(productData);
+        if (productData?.store_id) {
+          const storeData = await fetchStoreById(productData.store_id);
+          if (isCurrent) setStore(storeData);
+        }
+        log.ok('ProductDetailScreen:loaded', {
+          productId,
+          found: Boolean(productData),
+          storeId: productData?.store_id || null,
+        });
+        setLoading(false);
+      })
+      .catch((error) => {
+        log.fail('ProductDetailScreen:load-failed', error);
+        if (isCurrent) setLoading(false);
+      });
 
     return () => {
       isCurrent = false;

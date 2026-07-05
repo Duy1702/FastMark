@@ -182,7 +182,7 @@ export function createLeafletHtml({ currentLocation = null } = {}) {
         attributionControl: true,
       }).setView(getLatLng(startLocation), 18);
 
-      L.control.zoom({ position: 'bottomright' }).addTo(map);
+      L.control.zoom({ position: 'bottomleft' }).addTo(map);
 
       L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 19,
@@ -231,7 +231,7 @@ export function createLeafletHtml({ currentLocation = null } = {}) {
           if (activeRadiusMeters) {
             fitMapToRadius(location, activeRadiusMeters);
           } else {
-            map.setView(latLng, 18, { animate: true });
+            map.setView(latLng, 18, { animate: false });
           }
         }
       }
@@ -372,10 +372,17 @@ export function createLeafletHtml({ currentLocation = null } = {}) {
         }
 
         if (command.type === 'recenter' && hasLocation(command.location)) {
-          drawCurrentLocation(command.location, { recenter: true });
-          if (activeRadiusMeters) {
-            fitMapToRadius(command.location, activeRadiusMeters);
+          userMovedMap = false;
+          const latLng = getLatLng(command.location);
+
+          if (currentMarker) {
+            currentMarker.setLatLng(latLng);
+          } else {
+            currentMarker = L.marker(latLng, { icon: userIcon, interactive: false }).addTo(map);
           }
+
+          hideAccuracyCircle();
+          map.setView(latLng, 18, { animate: false });
         }
 
         if (command.type === 'showRestaurants') {

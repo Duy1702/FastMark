@@ -2,6 +2,9 @@ import {
   getAndroidOAuthClientIdFromGoogleServices,
   getWebOAuthClientIdFromGoogleServices,
 } from './googleServicesConfig';
+import { createLogger } from '../utils/logger';
+
+const log = createLogger('Env');
 
 const env = process.env || {};
 
@@ -12,11 +15,6 @@ export const firebaseConfig = {
   storageBucket: env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET,
   messagingSenderId: env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
   appId: env.EXPO_PUBLIC_FIREBASE_APP_ID,
-};
-
-export const supabaseConfig = {
-  url: env.EXPO_PUBLIC_SUPABASE_URL,
-  key: env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY || env.EXPO_PUBLIC_SUPABASE_ANON_KEY,
 };
 
 export const nodeApiUrl = env.EXPO_PUBLIC_NODE_API_URL || '';
@@ -46,30 +44,8 @@ export function getMissingFirebaseEnv() {
     .map(([envKey]) => envKey);
 }
 
-export function getMissingSupabaseEnv() {
-  if (nodeApiUrl) {
-    return [];
-  }
-
-  const missing = [];
-
-  if (!supabaseConfig.url) {
-    missing.push('EXPO_PUBLIC_SUPABASE_URL');
-  }
-
-  if (!supabaseConfig.key) {
-    missing.push('EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY');
-  }
-
-  return missing;
-}
-
 export function getNodeApiUrl() {
   return nodeApiUrl;
-}
-
-export function getMissingBackendEnv() {
-  return [...getMissingFirebaseEnv(), ...getMissingSupabaseEnv()];
 }
 
 export function getAuthConfigError() {
@@ -82,20 +58,22 @@ export function getAuthConfigError() {
   return `Cần bổ sung các biến trong .env: ${missing.join(', ')}`;
 }
 
-export function assertBackendEnv() {
-  const missing = getMissingBackendEnv();
-
-  if (missing.length > 0) {
-    throw new Error(`Thiếu cấu hình kết nối: ${missing.join(', ')}`);
-  }
+export function getFirebaseConfigSummary() {
+  return {
+    projectId: firebaseConfig.projectId || '(missing)',
+    authDomain: firebaseConfig.authDomain || '(missing)',
+    appId: firebaseConfig.appId ? `${firebaseConfig.appId.slice(0, 8)}...` : '(missing)',
+    apiKey: firebaseConfig.apiKey ? 'set' : '(missing)',
+  };
 }
 
-export function getBackendConfigError() {
-  const missing = getMissingBackendEnv();
+export function assertBackendEnv() {
+  const missing = getMissingFirebaseEnv();
 
-  if (missing.length === 0) {
-    return '';
+  if (missing.length > 0) {
+    log.fail('assertBackendEnv', `Missing: ${missing.join(', ')}`);
+    throw new Error(`Thiếu cấu hình kết nối: ${missing.join(', ')}`);
   }
 
-  return `Cần bổ sung các biến trong .env: ${missing.join(', ')}`;
+  log.debug('assertBackendEnv:ok');
 }

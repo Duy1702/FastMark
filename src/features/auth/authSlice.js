@@ -14,6 +14,7 @@ import { getAuthConfigError } from '../../services/env';
 import { readUserProfile, upsertUserProfile, makeProfileFromAuthUser } from '../../services/profileService';
 import { readCachedProfile, writeCachedProfile } from '../../services/profileCache';
 import { toReadableAuthError } from './authErrors';
+import { authLogger as log } from '../../utils/logger';
 
 const initialState = {
   status: 'checking',
@@ -64,16 +65,20 @@ export const loadUserProfile = createAsyncThunk(
       return { profile: null };
     }
 
+    log.info('loadUserProfile:start', { uid: user.uid });
     const cached = await readCachedProfile(user.uid);
     if (cached) {
+      log.ok('loadUserProfile:cache-hit', { uid: user.uid });
       return { profile: makeProfileFromAuthUser(user, cached) };
     }
 
     try {
       const profile = await readUserProfile(user);
       await writeCachedProfile(profile);
+      log.ok('loadUserProfile:remote', { uid: user.uid });
       return { profile };
-    } catch {
+    } catch (error) {
+      log.fail('loadUserProfile:fallback-default', error);
       return { profile: makeProfileFromAuthUser(user) };
     }
   }
@@ -82,22 +87,54 @@ export const loadUserProfile = createAsyncThunk(
 export const registerUser = createAsyncThunk(
   'auth/register',
   async (payload, { rejectWithValue }) => {
+    log.step('[AUTH] registerUser START', { email: payload.email });
+
     try {
       const configError = getAuthConfigError();
-
       if (configError) {
         throw new Error(configError);
       }
 
       const user = await registerWithEmail(payload);
-      const profile = await upsertUserProfile(user, {
-        fullName: payload.fullName,
-        phone: payload.phone,
-        photoUrl: payload.photoUrl,
-      });
 
+      log.step('[PROFILE] upsertUserProfile START (register)', { uid: user.uid });
+      let profile;
+      try {
+        profile = await upsertUserProfile(user, {
+          fullName: payload.fullName,
+          phone: payload.phone,
+          photoUrl: payload.photoUrl,
+        });
+        log.step('[PROFILE] upsertUserProfile SUCCESS (register)', { uid: user.uid });
+      } catch (profileError) {
+        log.fail('[PROFILE] upsertUserProfile FAILED (non-fatal — auth succeeded)', profileError);
+        profile = makeProfileFromAuthUser(user, {
+          fullName: payload.fullName,
+          phone: payload.phone,
+          photoUrl: payload.photoUrl,
+        });
+      }
+
+      log.step('[AUTH] registerUser SUCCESS', { uid: user.uid });
       return { user, profile, message: 'Đăng ký thành công.' };
     } catch (error) {
+      log.fail('[AUTH] registerUser FAILED', error);
+
+      const existingUser = getCurrentFirebaseUser();
+      if (existingUser?.email === payload.email?.trim()) {
+        log.warn('[AUTH] registerUser RECOVERED — Firebase user exists despite error', {
+          uid: existingUser.uid,
+          originalError: error?.code || error?.message,
+        });
+        const user = serializeAuthUser(existingUser);
+        const profile = makeProfileFromAuthUser(user, {
+          fullName: payload.fullName,
+          phone: payload.phone,
+          photoUrl: payload.photoUrl,
+        });
+        return { user, profile, message: 'Đăng ký thành công.' };
+      }
+
       return rejectWithReadableError(error, rejectWithValue);
     }
   }
@@ -106,18 +143,30 @@ export const registerUser = createAsyncThunk(
 export const loginUser = createAsyncThunk(
   'auth/login',
   async (payload, { rejectWithValue }) => {
+    log.step('[AUTH] loginUser START', { email: payload.email });
+
     try {
       const configError = getAuthConfigError();
-
       if (configError) {
         throw new Error(configError);
       }
 
       const user = await loginWithEmail(payload);
-      const profile = await upsertUserProfile(user);
 
+      log.step('[PROFILE] upsertUserProfile START (login)', { uid: user.uid });
+      let profile;
+      try {
+        profile = await upsertUserProfile(user);
+        log.step('[PROFILE] upsertUserProfile SUCCESS (login)', { uid: user.uid });
+      } catch (profileError) {
+        log.fail('[PROFILE] upsertUserProfile FAILED (non-fatal — auth succeeded)', profileError);
+        profile = makeProfileFromAuthUser(user);
+      }
+
+      log.step('[AUTH] loginUser SUCCESS', { uid: user.uid });
       return { user, profile, message: 'Đăng nhập thành công.' };
     } catch (error) {
+      log.fail('[AUTH] loginUser FAILED', error);
       return rejectWithReadableError(error, rejectWithValue);
     }
   }
@@ -127,8 +176,11 @@ export const logoutUser = createAsyncThunk(
   'auth/logout',
   async (_, { rejectWithValue }) => {
     try {
+      log.info('logoutUser:start');
       await logoutCurrentUser();
+      log.ok('logoutUser:success');
     } catch (error) {
+      log.fail('logoutUser', error);
       return rejectWithReadableError(error, rejectWithValue);
     }
   }
@@ -157,7 +209,7 @@ export const updateUserProfile = createAsyncThunk(
         photoUrl: updates.photoUrl,
       });
     } catch (error) {
-      console.warn('Firebase Auth profile sync failed:', error?.message || error);
+      log.fail('updateUserProfile:firebase-auth', error);
     }
 
     try {
@@ -167,8 +219,9 @@ export const updateUserProfile = createAsyncThunk(
         { existingProfile: currentProfile }
       );
       await writeCachedProfile(profile);
+      log.ok('updateUserProfile:success', { uid: authUser.uid });
     } catch (error) {
-      console.warn('Remote profile sync failed:', error?.message || error);
+      log.fail('updateUserProfile:remote-sync', error);
     }
   }
 );
@@ -177,10 +230,12 @@ export const changePassword = createAsyncThunk(
   'auth/changePassword',
   async (payload, { rejectWithValue }) => {
     try {
+      log.info('changePassword:start');
       await changeCurrentUserPassword(payload);
-
+      log.ok('changePassword:success');
       return { message: 'Đã đổi mật khẩu.' };
     } catch (error) {
+      log.fail('changePassword', error);
       return rejectWithReadableError(error, rejectWithValue);
     }
   }
@@ -190,6 +245,7 @@ export const socialLogin = createAsyncThunk(
   'auth/socialLogin',
   async ({ token }, { rejectWithValue }) => {
     try {
+      log.info('socialLogin:start');
       const configError = getAuthConfigError();
       if (configError) throw new Error(configError);
 
@@ -199,12 +255,14 @@ export const socialLogin = createAsyncThunk(
       try {
         profile = await upsertUserProfile(user);
       } catch (profileError) {
-        console.warn('Profile sync after Google login failed:', profileError?.message || profileError);
+        log.fail('socialLogin:profile-sync', profileError);
         profile = makeProfileFromAuthUser(user);
       }
 
+      log.ok('socialLogin:success', { uid: user.uid });
       return { user, profile, message: 'Đăng nhập thành công.' };
     } catch (error) {
+      log.fail('socialLogin', error);
       return rejectWithReadableError(error, rejectWithValue);
     }
   }
@@ -383,7 +441,15 @@ const authSlice = createSlice({
           ].includes(action.type),
         (state, action) => {
           state.actionStatus = 'idle';
-          state.error = action.payload;
+          // Do not overwrite authenticated session if auth listener already signed in.
+          if (state.status !== 'authenticated') {
+            state.error = action.payload;
+          } else {
+            log.warn('[AUTH] rejected thunk ignored — user already authenticated', {
+              action: action.type,
+              error: action.payload,
+            });
+          }
           state.successMessage = null;
         }
       );

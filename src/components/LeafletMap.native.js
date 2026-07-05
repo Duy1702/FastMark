@@ -4,6 +4,9 @@ import { WebView } from 'react-native-webview';
 
 import { createLeafletHtml, MAP_EVENT_SOURCE } from '../utils/leafletHtml';
 import { hasValidLocation } from '../utils/geo';
+import { createLogger } from '../utils/logger';
+
+const log = createLogger('LeafletMap');
 
 function parseMapMessage(data) {
   try {
@@ -17,7 +20,7 @@ function parseMapMessage(data) {
 export default function LeafletMap({
   currentLocation,
   radiusCircle,
-  recenterSignal,
+  recenterRequest,
   restaurants,
   onEvent,
 }) {
@@ -25,6 +28,7 @@ export default function LeafletMap({
   const onEventRef = useRef(onEvent);
   const initialLocationRef = useRef(currentLocation);
   const hasCenteredRef = useRef(false);
+  const pendingCommandsRef = useRef([]);
   const [ready, setReady] = useState(false);
 
   onEventRef.current = onEvent;
@@ -34,15 +38,36 @@ export default function LeafletMap({
     []
   );
 
-  function sendCommand(command) {
-    if (!ready || !webViewRef.current) {
+  function flushPendingCommands() {
+    if (!ready || !webViewRef.current || pendingCommandsRef.current.length === 0) {
       return;
     }
 
+    const queued = [...pendingCommandsRef.current];
+    pendingCommandsRef.current = [];
+    queued.forEach((command) => {
+      webViewRef.current.injectJavaScript(
+        `window.FastmarkMap && window.FastmarkMap.receive(${JSON.stringify(command)}); true;`
+      );
+    });
+  }
+
+  function sendCommand(command) {
+    if (!ready || !webViewRef.current) {
+      log.debug('sendCommand:queue-not-ready', command?.type);
+      pendingCommandsRef.current.push(command);
+      return;
+    }
+
+    log.debug('sendCommand', command?.type, command);
     webViewRef.current.injectJavaScript(
       `window.FastmarkMap && window.FastmarkMap.receive(${JSON.stringify(command)}); true;`
     );
   }
+
+  useEffect(() => {
+    flushPendingCommands();
+  }, [ready]);
 
   useEffect(() => {
     if (!ready || !hasValidLocation(currentLocation)) {
@@ -73,10 +98,17 @@ export default function LeafletMap({
   }, [radiusCircle, ready]);
 
   useEffect(() => {
-    if (recenterSignal > 0 && hasValidLocation(currentLocation)) {
-      sendCommand({ type: 'recenter', location: currentLocation });
+    const location = recenterRequest?.location;
+    if (!recenterRequest || !hasValidLocation(location)) {
+      return;
     }
-  }, [recenterSignal, currentLocation, ready]);
+
+    sendCommand({
+      type: 'recenter',
+      location,
+      radius: radiusCircle?.radius ?? null,
+    });
+  }, [recenterRequest, radiusCircle?.radius, ready]);
 
   return (
     <View style={styles.container}>
@@ -89,13 +121,20 @@ export default function LeafletMap({
         domStorageEnabled
         mixedContentMode="always"
         setSupportMultipleWindows={false}
-        onLoadEnd={() => setReady(true)}
+        onLoadEnd={() => {
+          log.ok('webview:ready');
+          setReady(true);
+        }}
         onMessage={(event) => {
           const payload = parseMapMessage(event.nativeEvent.data);
 
           if (payload) {
+            log.debug('webview:event', payload?.type, payload);
             onEventRef.current?.(payload);
           }
+        }}
+        onError={(event) => {
+          log.fail('webview:error', event.nativeEvent);
         }}
       />
     </View>

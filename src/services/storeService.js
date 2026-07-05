@@ -1,44 +1,40 @@
-import { getMockStoreById, MOCK_STORES } from '../data/storeMockData';
-import { ensureSupabaseClient } from './supabaseClient';
+import { doc, getDoc } from 'firebase/firestore';
+
+import { getMockStoreById } from '../data/storeMockData';
+import { createLogger } from '../utils/logger';
+import { getFirestoreDb } from './firestoreDb';
+
+const log = createLogger('StoreService');
+const RESTAURANTS_COLLECTION = 'restaurants';
 
 export async function fetchStoreById(storeId) {
   const normalizedId = String(storeId);
+  log.info('fetchStoreById:start', { storeId: normalizedId });
+
   const mockStore = getMockStoreById(normalizedId);
   if (mockStore) {
+    log.ok('fetchStoreById:mock-hit', { storeId: normalizedId, name: mockStore.name });
     return mockStore;
   }
 
   try {
-    const supabase = ensureSupabaseClient();
-    const { data, error } = await supabase
-      .from('restaurants')
-      .select('*')
-      .eq('id', normalizedId)
-      .maybeSingle();
+    const db = getFirestoreDb();
+    const snapshot = await getDoc(doc(db, RESTAURANTS_COLLECTION, normalizedId));
 
-    if (!error && data) {
-      return normalizeStore(data);
+    if (snapshot.exists()) {
+      const store = normalizeStore({ id: snapshot.id, ...snapshot.data() });
+      log.ok('fetchStoreById:firestore', { storeId: normalizedId, name: store.name });
+      return store;
     }
-  } catch {
-    // fallback to mock
+
+    log.warn('fetchStoreById:not-found-firestore', { storeId: normalizedId });
+  } catch (error) {
+    log.fail('fetchStoreById:firestore-failed', error);
   }
 
-  return getMockStoreById(normalizedId);
-}
-
-export async function fetchAllStores() {
-  try {
-    const supabase = ensureSupabaseClient();
-    const { data, error } = await supabase.from('restaurants').select('*');
-
-    if (!error && data?.length > 0) {
-      return data.map(normalizeStore);
-    }
-  } catch {
-    // fallback to mock
-  }
-
-  return MOCK_STORES;
+  const fallback = getMockStoreById(normalizedId);
+  log.info('fetchStoreById:fallback', { storeId: normalizedId, found: Boolean(fallback) });
+  return fallback;
 }
 
 function normalizeStore(row) {

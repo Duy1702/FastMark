@@ -27,13 +27,6 @@ export function getGoogleBrowserAuthRequestConfig() {
   };
 }
 
-export function getGoogleBrowserAuthRedirectUriOptions() {
-  return {
-    scheme: 'fastmark',
-    path: 'oauthredirect',
-  };
-}
-
 export function getGoogleAuthSetupError() {
   if (isExpoGoClient()) {
     return 'Google Sign-In không chạy trên Expo Go. Chạy: npx expo run:android';

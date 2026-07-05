@@ -1,24 +1,51 @@
+import {
+  collection,
+  getDocs,
+  query,
+  where,
+} from 'firebase/firestore';
+
 import { getMockReviewsByStoreId } from '../data/storeMockData';
-import { ensureSupabaseClient } from './supabaseClient';
+import { createLogger } from '../utils/logger';
+import { getFirestoreDb } from './firestoreDb';
+
+const log = createLogger('ReviewService');
+const REVIEWS_COLLECTION = 'reviews';
 
 export async function fetchReviewsByStoreId(storeId) {
-  try {
-    const supabase = ensureSupabaseClient();
-    const { data, error } = await supabase
-      .from('reviews')
-      .select('*')
-      .eq('store_id', storeId)
-      .order('created_at', { ascending: false });
+  log.info('fetchReviewsByStoreId:start', { storeId });
 
-    if (!error && data?.length > 0) {
-      return data.map(normalizeReview);
+  try {
+    const db = getFirestoreDb();
+    const snapshot = await getDocs(
+      query(collection(db, REVIEWS_COLLECTION), where('store_id', '==', String(storeId)))
+    );
+
+    if (!snapshot.empty) {
+      const reviews = snapshot.docs
+        .map((docSnap) => normalizeReview({ id: docSnap.id, ...docSnap.data() }))
+        .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+
+      if (reviews.length > 0) {
+        log.ok('fetchReviewsByStoreId:firestore', { storeId, count: reviews.length });
+        return reviews;
+      }
     }
-  } catch {
-    // fallback to mock
+
+    log.warn('fetchReviewsByStoreId:empty-firestore', { storeId });
+  } catch (error) {
+    log.fail('fetchReviewsByStoreId:firestore-failed', error);
   }
 
   const mockReviews = getMockReviewsByStoreId(storeId);
-  return mockReviews.length > 0 ? mockReviews : makeFallbackReviews(storeId);
+  if (mockReviews.length > 0) {
+    log.info('fetchReviewsByStoreId:mock', { storeId, count: mockReviews.length });
+    return mockReviews;
+  }
+
+  const fallback = makeFallbackReviews(storeId);
+  log.info('fetchReviewsByStoreId:fallback', { storeId, count: fallback.length });
+  return fallback;
 }
 
 function normalizeReview(row) {

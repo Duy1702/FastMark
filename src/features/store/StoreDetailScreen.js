@@ -13,6 +13,7 @@ import { fetchReviewsByStoreId } from '../../services/reviewService';
 import { fetchStoreById } from '../../services/storeService';
 import ContactActions from './components/ContactActions';
 import StarRating from './components/StarRating';
+import { storeLogger as log } from '../../utils/logger';
 
 const TABS = [
   { key: 'products', label: 'Sản phẩm' },
@@ -47,17 +48,30 @@ export default function StoreDetailScreen({ storeId, onBack, onProductPress }) {
     let isCurrent = true;
     setLoading(true);
 
+    log.info('StoreDetailScreen:load', { storeId });
+
     Promise.all([
       fetchStoreById(storeId),
       fetchProductsByStoreId(storeId),
       fetchReviewsByStoreId(storeId),
-    ]).then(([storeData, productData, reviewData]) => {
-      if (!isCurrent) return;
-      setStore(storeData);
-      setProducts(productData);
-      setReviews(reviewData);
-      setLoading(false);
-    });
+    ])
+      .then(([storeData, productData, reviewData]) => {
+        if (!isCurrent) return;
+        log.ok('StoreDetailScreen:loaded', {
+          storeId,
+          products: productData.length,
+          reviews: reviewData.length,
+          found: Boolean(storeData),
+        });
+        setStore(storeData);
+        setProducts(productData);
+        setReviews(reviewData);
+        setLoading(false);
+      })
+      .catch((error) => {
+        log.fail('StoreDetailScreen:load-failed', error);
+        if (isCurrent) setLoading(false);
+      });
 
     return () => {
       isCurrent = false;

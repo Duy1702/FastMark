@@ -3,13 +3,15 @@ import { StyleSheet, View } from 'react-native';
 
 import { createLeafletHtml, MAP_EVENT_SOURCE } from '../utils/leafletHtml';
 import { hasValidLocation } from '../utils/geo';
+import { createLogger } from '../utils/logger';
 
 const MAP_COMMAND_SOURCE = 'fastmark-map-command';
+const log = createLogger('LeafletMap');
 
 export default function LeafletMap({
   currentLocation,
   radiusCircle,
-  recenterSignal,
+  recenterRequest,
   restaurants,
   onEvent,
 }) {
@@ -17,6 +19,7 @@ export default function LeafletMap({
   const onEventRef = useRef(onEvent);
   const initialLocationRef = useRef(currentLocation);
   const hasCenteredRef = useRef(false);
+  const pendingCommandsRef = useRef([]);
   const [ready, setReady] = useState(false);
 
   onEventRef.current = onEvent;
@@ -28,9 +31,12 @@ export default function LeafletMap({
 
   function sendCommand(command) {
     if (!ready || !iframeRef.current?.contentWindow) {
+      log.debug('sendCommand:queue-not-ready', command?.type);
+      pendingCommandsRef.current.push(command);
       return;
     }
 
+    log.debug('sendCommand', command?.type, command);
     iframeRef.current.contentWindow.postMessage(
       { source: MAP_COMMAND_SOURCE, payload: command },
       '*'
@@ -38,10 +44,21 @@ export default function LeafletMap({
   }
 
   useEffect(() => {
+    if (!ready || pendingCommandsRef.current.length === 0) {
+      return;
+    }
+
+    const queued = [...pendingCommandsRef.current];
+    pendingCommandsRef.current = [];
+    queued.forEach((command) => sendCommand(command));
+  }, [ready]);
+
+  useEffect(() => {
     function handleMessage(event) {
       const message = event.data;
 
       if (message?.source === MAP_EVENT_SOURCE) {
+        log.debug('iframe:event', message.payload?.type, message.payload);
         onEventRef.current?.(message.payload);
       }
     }
@@ -80,23 +97,29 @@ export default function LeafletMap({
   }, [radiusCircle, ready]);
 
   useEffect(() => {
-    if (recenterSignal > 0 && hasValidLocation(currentLocation)) {
-      sendCommand({ type: 'recenter', location: currentLocation });
+    const location = recenterRequest?.location;
+    if (!recenterRequest || !hasValidLocation(location)) {
+      return;
     }
-  }, [recenterSignal, currentLocation, ready]);
+
+    sendCommand({
+      type: 'recenter',
+      location,
+      radius: radiusCircle?.radius ?? null,
+    });
+  }, [recenterRequest, radiusCircle?.radius, ready]);
 
   return (
     <View style={styles.container}>
-      {/*
-        react-native-webview is native-only here, so the web build renders the
-        same Leaflet document through an iframe.
-      */}
       {React.createElement('iframe', {
         title: 'Fastmark map',
         ref: iframeRef,
         srcDoc: html,
         style: styles.iframe,
-        onLoad: () => setReady(true),
+        onLoad: () => {
+          log.ok('iframe:ready');
+          setReady(true);
+        },
       })}
     </View>
   );

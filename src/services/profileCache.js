@@ -1,5 +1,9 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+import { createLogger } from '../utils/logger';
+
+const log = createLogger('ProfileCache');
+
 function cacheKey(uid) {
   return `fastmark:profile:${uid}`;
 }
@@ -11,8 +15,11 @@ export async function readCachedProfile(uid) {
 
   try {
     const raw = await AsyncStorage.getItem(cacheKey(uid));
-    return raw ? JSON.parse(raw) : null;
-  } catch {
+    const profile = raw ? JSON.parse(raw) : null;
+    log.debug('readCachedProfile', { uid, hit: Boolean(profile) });
+    return profile;
+  } catch (error) {
+    log.fail('readCachedProfile', error);
     return null;
   }
 }
@@ -24,7 +31,8 @@ export async function writeCachedProfile(profile) {
 
   try {
     await AsyncStorage.setItem(cacheKey(profile.id), JSON.stringify(profile));
-  } catch {
-    // Local cache is best-effort only.
+    log.debug('writeCachedProfile', { uid: profile.id });
+  } catch (error) {
+    log.fail('writeCachedProfile', error);
   }
 }

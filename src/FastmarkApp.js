@@ -19,15 +19,24 @@ import {
   subscribeToAuthChanges,
 } from './services/authService';
 import { getAuthConfigError } from './services/env';
+import { getStartupDiagnostics, validateGoogleOAuthSetup } from './utils/authDiagnostics';
+import { authLogger as log } from './utils/logger';
 
 export default function FastmarkApp() {
   const dispatch = useDispatch();
   const status = useSelector(selectAuthStatus);
 
   useEffect(() => {
+    log.info('startup');
+    log.info('startup-diagnostics', getStartupDiagnostics());
+    const googleIssues = validateGoogleOAuthSetup();
+    if (googleIssues.length > 0) {
+      log.warn('google-oauth-issues', googleIssues);
+    }
     const configError = getAuthConfigError();
 
     if (configError) {
+      log.fail('config-error', configError);
       dispatch(setConfigError(configError));
       return undefined;
     }
@@ -38,6 +47,7 @@ export default function FastmarkApp() {
       const unsubscribe = subscribeToAuthChanges(
         (firebaseUser) => {
           if (!firebaseUser) {
+            log.info('session:unauthenticated');
             dispatch(setUnauthenticated());
             return;
           }
@@ -45,19 +55,26 @@ export default function FastmarkApp() {
           const user = serializeAuthUser(firebaseUser);
           const currentUid = store.getState().auth.user?.uid;
 
+          log.info('session:authenticated', { uid: user.uid });
           dispatch(setAuthUser(user));
 
           if (currentUid !== user.uid) {
+            log.info('session:load-profile', { uid: user.uid });
             dispatch(loadUserProfile());
           }
         },
         (error) => {
-          dispatch(setConfigError(error?.message || 'Không khởi tạo được xác thực.'));
+          log.fail('[AUTH] onAuthStateChanged subscribe callback ERROR', error);
+          // Only surface listener errors when there is no active session.
+          if (!store.getState().auth.user) {
+            dispatch(setConfigError(error?.message || 'Không khởi tạo được xác thực.'));
+          }
         }
       );
 
       return unsubscribe;
     } catch (error) {
+      log.fail('startup:init-auth-failed', error);
       dispatch(setConfigError(error?.message || 'Không khởi tạo được xác thực.'));
       return undefined;
     }

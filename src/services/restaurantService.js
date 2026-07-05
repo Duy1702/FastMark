@@ -1,31 +1,47 @@
 import { MOCK_STORES } from '../data/storeMockData';
-import { ensureSupabaseClient } from './supabaseClient';
+import { createLogger } from '../utils/logger';
+import {
+  collection,
+  getDocs,
+  query,
+  where,
+} from 'firebase/firestore';
+
+import { getFirestoreDb } from './firestoreDb';
+
+const log = createLogger('RestaurantService');
+const RESTAURANTS_COLLECTION = 'restaurants';
 
 export async function fetchRestaurants(type = 'all') {
+  log.info('fetchRestaurants:start', { type });
+
   try {
-    const supabase = ensureSupabaseClient();
-    let query = supabase.from('restaurants').select('*');
-    
-    if (type !== 'all') {
-      query = query.eq('type', type);
+    const db = getFirestoreDb();
+    const restaurantsRef = collection(db, RESTAURANTS_COLLECTION);
+    const snapshot =
+      type === 'all'
+        ? await getDocs(restaurantsRef)
+        : await getDocs(query(restaurantsRef, where('type', '==', type)));
+
+    const data = snapshot.docs.map((docSnap) => ({
+      id: docSnap.id,
+      ...docSnap.data(),
+    }));
+
+    if (data.length > 0) {
+      const merged = mergeWithMockRestaurants(data, type);
+      log.ok('fetchRestaurants:firestore', { type, count: merged.length });
+      return merged;
     }
-    
-    const { data, error } = await query;
-    
-    if (error) {
-      console.warn('Supabase fetch error, using fallback mock data:', error.message);
-      return getFilteredMockRestaurants(type);
-    }
-    
-    if (data && data.length > 0) {
-      return mergeWithMockRestaurants(data, type);
-    }
-    
-    return getFilteredMockRestaurants(type);
-  } catch (err) {
-    console.warn('Supabase not connected or table not found, using mock data:', err);
-    return getFilteredMockRestaurants(type);
+
+    log.warn('fetchRestaurants:empty-firestore', { type });
+  } catch (error) {
+    log.fail('fetchRestaurants:firestore-failed', error);
   }
+
+  const mockData = getFilteredMockRestaurants(type);
+  log.info('fetchRestaurants:mock-fallback', { type, count: mockData.length });
+  return mockData;
 }
 
 function mergeWithMockRestaurants(remoteData, type) {

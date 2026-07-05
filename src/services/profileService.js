@@ -1,8 +1,11 @@
 import { doc, getDoc, getFirestore, setDoc } from 'firebase/firestore';
 
+import { createLogger } from '../utils/logger';
 import { ensureFirebaseApp } from './firebaseApp';
 import { getCurrentUserIdToken } from './authService';
 import { getNodeApiUrl } from './env';
+
+const log = createLogger('ProfileService');
 
 const PROFILE_COLLECTION = 'profiles';
 const NODE_FETCH_TIMEOUT_MS = 3000;
@@ -81,21 +84,25 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = NODE_FETCH_TIMEOU
 }
 
 async function readFirebaseProfile(uid) {
+  log.step('[PROFILE] firestore read START', { uid });
   const db = getProfilesCollection();
   const snapshot = await getDoc(doc(db, PROFILE_COLLECTION, uid));
-
+  log.step('[PROFILE] firestore read DONE', { uid, exists: snapshot.exists() });
   return snapshot.exists() ? snapshot.data() : null;
 }
 
 async function saveFirebaseProfile(profile) {
+  log.step('[PROFILE] firestore save START', { uid: profile.id });
   const db = getProfilesCollection();
   await setDoc(doc(db, PROFILE_COLLECTION, profile.id), profile, { merge: true });
+  log.step('[PROFILE] firestore save SUCCESS', { uid: profile.id });
 }
 
 async function getNodeAuthToken() {
   try {
     return await getCurrentUserIdToken();
-  } catch {
+  } catch (error) {
+    log.fail('[PROFILE] getIdToken FAILED', error);
     return null;
   }
 }
@@ -151,35 +158,43 @@ function syncNodeProfileInBackground(profile) {
   }
 
   saveNodeProfile(profile).catch((error) => {
-    console.warn('Node API background sync failed:', error.message || error);
+    log.fail('syncNodeProfileInBackground', error);
   });
 }
 
 export async function readUserProfile(authUser) {
+  log.info('readUserProfile:start', { uid: authUser.uid });
+
   try {
     const firebaseProfile = await readFirebaseProfile(authUser.uid);
     if (firebaseProfile) {
+      log.ok('readUserProfile:firestore', { uid: authUser.uid });
       return mergeProfile(authUser, firebaseProfile, null);
     }
+    log.warn('readUserProfile:firestore-empty', { uid: authUser.uid });
   } catch (error) {
-    console.warn('Firestore read profile failed:', error.message || error);
+    log.fail('readUserProfile:firestore-failed', error);
   }
 
   if (hasNodeApi()) {
     try {
       const nodeProfile = await fetchNodeProfile();
       if (nodeProfile) {
+        log.ok('readUserProfile:node-api', { uid: authUser.uid });
         return mergeProfile(authUser, nodeProfile, null);
       }
+      log.warn('readUserProfile:node-api-empty', { uid: authUser.uid });
     } catch (error) {
-      console.warn('Node API read profile failed:', error.message || error);
+      log.fail('readUserProfile:node-api-failed', error);
     }
   }
 
+  log.info('readUserProfile:default-profile', { uid: authUser.uid });
   return mergeProfile(authUser, null, null);
 }
 
 export async function upsertUserProfile(authUser, updates = {}, options = {}) {
+  log.info('upsertUserProfile:start', { uid: authUser.uid, updates: Object.keys(updates || {}) });
   const { existingProfile = null } = options;
 
   let currentProfile = existingProfile;
@@ -191,8 +206,9 @@ export async function upsertUserProfile(authUser, updates = {}, options = {}) {
 
   try {
     await saveFirebaseProfile(profile);
+    log.ok('upsertUserProfile:firestore-saved', { uid: authUser.uid });
   } catch (error) {
-    console.warn('Firestore save profile failed:', error.message || error);
+    log.fail('upsertUserProfile:firestore-failed', error);
   }
 
   syncNodeProfileInBackground(profile);
