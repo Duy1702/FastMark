@@ -9,6 +9,7 @@ const {
   mapFirebaseAdminError,
   mapFirebaseRestError,
 } = require("../utils/firebaseErrors");
+const { sendVerificationEmail } = require("./mailService");
 
 function normalizeEmail(email) {
   return String(email || "").trim().toLowerCase();
@@ -26,8 +27,13 @@ async function assignEmailVerificationCode(user) {
   user.EmailVerifyCodeExpiresAt = new Date(Date.now() + EMAIL_VERIFY_TTL_MS);
   await user.save();
 
-  return {
+  await sendVerificationEmail({
+    to: user.Email,
     code,
+    expiresInMinutes: EMAIL_VERIFY_TTL_MS / 60000,
+  });
+
+  return {
     expiresAt: user.EmailVerifyCodeExpiresAt,
     expiresInSeconds: EMAIL_VERIFY_TTL_MS / 1000,
   };

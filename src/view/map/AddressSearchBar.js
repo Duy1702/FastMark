@@ -11,7 +11,7 @@ import {
 
 import { searchMapAddresses } from '../../viewmodel/map/mapViewModel';
 
-export default function AddressSearchBar({ onSelectResult }) {
+export default function AddressSearchBar({ onSelectResult, placeholder }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -89,7 +89,7 @@ export default function AddressSearchBar({ onSelectResult }) {
         <TextInput
           value={query}
           onChangeText={setQuery}
-          placeholder="Tìm địa chỉ, quận, thành phố..."
+          placeholder={placeholder || 'Tìm địa chỉ, quận, thành phố...'}
           placeholderTextColor="#94a3b8"
           style={styles.input}
           returnKeyType="search"

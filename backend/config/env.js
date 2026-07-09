@@ -57,4 +57,9 @@ module.exports = {
   supabaseStorageBucket: readEnv("SUPABASE_STORAGE_BUCKET", {
     fallback: "product-images",
   }),
+  smtpService: readEnv("SMTP_SERVICE", { fallback: "gmail" }),
+  smtpUser: readEnv("SMTP_USER"),
+  smtpPass: readEnv("SMTP_PASS").replace(/\s/g, ""),
+  smtpFrom: readEnv("SMTP_FROM"),
+  nodeEnv: readEnv("NODE_ENV", { fallback: "development" }),
 };

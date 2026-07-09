@@ -49,6 +49,9 @@ export async function registerWithEmail({ email, password, fullName, photoUrl })
 
   log.step('[AUTH] createUser SUCCESS', { uid: credential.user.uid });
 
+
+
+  
   log.step('[AUTH] updateProfile START', { uid: credential.user.uid });
   try {
     await updateProfile(credential.user, {

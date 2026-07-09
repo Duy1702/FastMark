@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -109,7 +110,11 @@ export default function StoreDetailScreen({ storeId, onBack, onProductPress }) {
             <Text style={styles.backBtnText}>←</Text>
           </Pressable>
           <View style={styles.cover}>
-            <Text style={styles.coverEmoji}>{emoji}</Text>
+            {store.image_url ? (
+              <Image source={{ uri: store.image_url }} style={styles.coverImage} />
+            ) : (
+              <Text style={styles.coverEmoji}>{emoji}</Text>
+            )}
           </View>
           <View style={styles.headerInfo}>
             <Text style={styles.storeName}>{store.name}</Text>
@@ -297,6 +302,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#0f766e',
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  coverImage: {
+    width: '100%',
+    height: '100%',
   },
   coverEmoji: {
     fontSize: 56,

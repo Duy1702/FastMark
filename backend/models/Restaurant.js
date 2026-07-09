@@ -14,6 +14,7 @@ const restaurantSchema = new mongoose.Schema(
     rating_avg: { type: Number, default: 4.5 },
     review_count: { type: Number, default: 0 },
     product_count: { type: Number, default: 0 },
+    image_url: { type: String, default: '' },
   },
   { timestamps: true, versionKey: false }
 );
@@ -32,6 +33,7 @@ restaurantSchema.methods.toClientStore = function toClientStore() {
     rating_avg: this.rating_avg,
     review_count: this.review_count,
     product_count: this.product_count,
+    image_url: this.image_url || '',
   };
 };
 
