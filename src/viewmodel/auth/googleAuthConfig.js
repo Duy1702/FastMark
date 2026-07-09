@@ -8,6 +8,7 @@ import {
   isExpoGoRuntime,
   isNativeGoogleSignInAvailable,
 } from './googleSignInModule';
+
 export function isExpoGoClient() {
   return isExpoGoRuntime();
 }
@@ -51,11 +52,13 @@ export function getGoogleAuthSetupError() {
     }
 
     const oauthIssues = validateGoogleOAuthSetup().filter(
-      (issue) => issue.includes('does not match google-services.json')
+      (issue) =>
+        issue.includes('does not match google-services.json') ||
+        issue.includes('Client ID in .env does not match google-services.json')
     );
 
     if (oauthIssues.length > 0) {
-      return 'Client ID Google trong .env không có trong google-services.json. Web = client_type 3, Android = client_type 1.';
+      return 'Client ID Google trong .env không khớp google-services.json. Web = client_type 3, Android = client_type 1. Tải lại file từ Firebase rồi cập nhật .env.';
     }
 
     return null;
@@ -104,6 +107,11 @@ export function describeNativeGoogleError(error) {
   const message = error.message || '';
 
   if (message.includes('DEVELOPER_ERROR') || error.code === '10') {
+    const setupHint = getGoogleAuthSetupError();
+    if (setupHint) {
+      return setupHint;
+    }
+
     return (
       'Cấu hình Google chưa khớp (DEVELOPER_ERROR). Thêm SHA-1 debug vào Firebase → tải lại google-services.json → chạy: npx expo run:android. Xem SHA-1 bằng: npm run android:sha1'
     );
