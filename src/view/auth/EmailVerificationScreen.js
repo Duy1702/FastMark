@@ -123,10 +123,15 @@ export default function EmailVerificationScreen() {
             <Text style={styles.emailValue}>{email}</Text>
           </View>
 
-          {emailVerification?.devCode ? (
-            <View style={styles.devBox}>
-              <Text style={styles.devTitle}>Mã demo (chưa gửi email)</Text>
-              <Text style={styles.devCode}>{emailVerification.devCode}</Text>
+          {isLoading && !emailVerification ? (
+            <View style={styles.hintBox}>
+              <Text style={styles.hintText}>Đang gửi mã xác minh...</Text>
+            </View>
+          ) : emailVerification ? (
+            <View style={styles.hintBox}>
+              <Text style={styles.hintText}>
+                Mã xác minh đã được gửi tới {email}. Kiểm tra hộp thư đến hoặc thư rác.
+              </Text>
             </View>
           ) : null}
 
@@ -233,26 +238,19 @@ const styles = StyleSheet.create({
     color: AUTH_COLORS.text,
     fontWeight: '700',
   },
-  devBox: {
-    backgroundColor: '#fffbeb',
+  hintBox: {
+    backgroundColor: '#f0fdfa',
     borderRadius: 14,
     padding: 14,
     marginBottom: 16,
     borderWidth: 1,
-    borderColor: '#fde68a',
+    borderColor: '#99f6e4',
   },
-  devTitle: {
+  hintText: {
     fontSize: 13,
-    color: '#92400e',
-    marginBottom: 6,
-    fontWeight: '700',
-  },
-  devCode: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: '#b45309',
-    letterSpacing: 4,
-    textAlign: 'center',
+    lineHeight: 20,
+    color: '#0f766e',
+    fontWeight: '600',
   },
   timerText: {
     fontSize: 13,

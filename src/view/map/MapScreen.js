@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import * as Location from 'expo-location';
 
 import LeafletMap from '../shared/components/LeafletMap';
-import { MOCK_STORES } from '../../model/mock/storeMockData';
+import AddressSearchBar from './AddressSearchBar';
 import ProductDetailScreen from '../store/ProductDetailScreen';
 import StoreDetailScreen from '../store/StoreDetailScreen';
 import { calculateDistanceMeters, hasValidLocation, normalizeExpoLocation } from '../../core/utils/geo';
 import { loadRestaurants } from '../../viewmodel/map/mapViewModel';
+import { loadStoreById } from '../../viewmodel/store/storeViewModel';
 import { mapLogger as log } from '../../core/utils/logger';
 
 const TYPE_EMOJI = {
@@ -24,7 +25,7 @@ export default function MapScreen({ children, focusStoreRequest }) {
   const [recenterRequest, setRecenterRequest] = useState(null);
 
   const [menuVisible, setMenuVisible] = useState(false);
-  const [selectedRadius, setSelectedRadius] = useState(500);
+  const [selectedRadius, setSelectedRadius] = useState(2000);
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [restaurants, setRestaurants] = useState([]);
   const [storeNav, setStoreNav] = useState(null);
@@ -173,27 +174,49 @@ export default function MapScreen({ children, focusStoreRequest }) {
   useEffect(() => {
     const targetStoreId = focusStoreRequest?.storeId;
     if (!targetStoreId) {
-      return;
+      return undefined;
     }
 
-    const targetStore = MOCK_STORES.find((store) => String(store.id) === String(targetStoreId));
-    if (!targetStore?.latitude || !targetStore?.longitude) {
-      return;
+    let isCurrent = true;
+
+    function applyFocus(targetStore) {
+      if (!isCurrent || !targetStore?.latitude || !targetStore?.longitude) {
+        return;
+      }
+
+      setMenuVisible(false);
+      setSelectedCategory('all');
+      setSelectedRadius(null);
+      setStoreNav(null);
+      setRecenterRequest({
+        location: {
+          latitude: targetStore.latitude,
+          longitude: targetStore.longitude,
+        },
+        at: focusStoreRequest.at || Date.now(),
+      });
+      log.info('focusStoreRequest', { storeId: targetStoreId });
     }
 
-    setMenuVisible(false);
-    setSelectedCategory('all');
-    setSelectedRadius(null);
-    setStoreNav(null);
-    setRecenterRequest({
-      location: {
-        latitude: targetStore.latitude,
-        longitude: targetStore.longitude,
-      },
-      at: focusStoreRequest.at || Date.now(),
-    });
-    log.info('focusStoreRequest', { storeId: targetStoreId });
-  }, [focusStoreRequest]);
+    const cachedStore = restaurants.find(
+      (store) => String(store.id) === String(targetStoreId)
+    );
+
+    if (cachedStore) {
+      applyFocus(cachedStore);
+      return () => {
+        isCurrent = false;
+      };
+    }
+
+    loadStoreById(targetStoreId)
+      .then((store) => applyFocus(store))
+      .catch((error) => log.fail('focusStoreRequest:load-failed', error));
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [focusStoreRequest, restaurants]);
 
   const visibleRestaurants = useMemo(() => {
     if (!hasValidLocation(currentLocation) || restaurants.length === 0) {
@@ -278,6 +301,22 @@ export default function MapScreen({ children, focusStoreRequest }) {
     }
   }, [openStore]);
 
+  function handleSearchSelect(result) {
+    if (!result?.latitude || !result?.longitude) {
+      return;
+    }
+
+    setMenuVisible(false);
+    setRecenterRequest({
+      location: {
+        latitude: result.latitude,
+        longitude: result.longitude,
+      },
+      at: Date.now(),
+    });
+    log.info('search:select', { label: result.label });
+  }
+
   const radiusOptions = [
     { key: null, label: '🚫 Tắt bán kính' },
     { key: 100, label: '📍 100 m' },
@@ -294,6 +333,9 @@ export default function MapScreen({ children, focusStoreRequest }) {
     { key: 'milktea', label: '🧋 Trà sữa' },
     { key: 'snack', label: '🍿 Ăn vặt' },
   ];
+
+  const selectedRadiusLabel =
+    radiusOptions.find((opt) => opt.key === selectedRadius)?.label || 'Tắt';
 
   const showNearbyPanel =
     selectedCategory !== 'none' && visibleRestaurants.length > 0 && !storeNav;
@@ -329,6 +371,13 @@ export default function MapScreen({ children, focusStoreRequest }) {
           onEvent={handleMapEvent}
         />
 
+        <View style={styles.searchOverlay} pointerEvents="box-none">
+          <AddressSearchBar
+            placeholder="Tìm đường Phúc Diễn, địa điểm..."
+            onSelectResult={handleSearchSelect}
+          />
+        </View>
+
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Bộ lọc bản đồ"
@@ -350,6 +399,11 @@ export default function MapScreen({ children, focusStoreRequest }) {
           <View style={styles.filterPanel} pointerEvents="auto">
             <ScrollView showsVerticalScrollIndicator={false} bounces={false}>
               <Text style={styles.menuHeader}>Bộ lọc bản đồ</Text>
+              <Text style={styles.menuSummary}>
+                Danh mục: {restaurantCategories.find((c) => c.key === selectedCategory)?.label || 'Tất cả'}
+                {' · '}
+                Bán kính: {selectedRadiusLabel}
+              </Text>
 
               <Text style={styles.menuSubHeader}>Bán kính hiển thị</Text>
               {radiusOptions.map((opt) => {
@@ -408,33 +462,46 @@ export default function MapScreen({ children, focusStoreRequest }) {
 
       <View style={styles.nearbyPanel}>
         <Text style={styles.nearbyTitle}>
-          {showNearbyPanel ? `${visibleRestaurants.length} quán gần bạn — chạm để xem` : 'Chọn loại quán để xem danh sách'}
+          {showNearbyPanel
+            ? `${visibleRestaurants.length} quán trong ${selectedRadiusLabel} — chạm để xem`
+            : selectedCategory === 'none'
+              ? 'Chọn loại quán để xem danh sách'
+              : `Không có quán trong bán kính ${selectedRadiusLabel}`}
         </Text>
         {showNearbyPanel ? (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
+          <FlatList
+            data={visibleRestaurants}
+            keyExtractor={(item) => String(item.id)}
+            numColumns={2}
+            showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.nearbyList}
-          >
-            {visibleRestaurants.map((restaurant) => (
+            columnWrapperStyle={styles.nearbyRow}
+            renderItem={({ item: restaurant }) => (
               <Pressable
-                key={String(restaurant.id)}
                 style={({ pressed }) => [
                   styles.nearbyCard,
                   pressed && styles.nearbyCardPressed,
                 ]}
                 onPress={() => openStore(restaurant.id)}
               >
-                <Text style={styles.nearbyEmoji}>
-                  {TYPE_EMOJI[restaurant.type] || '🏪'}
-                </Text>
+                {restaurant.image_url ? (
+                  <Image
+                    source={{ uri: restaurant.image_url }}
+                    style={styles.nearbyThumb}
+                  />
+                ) : (
+                  <View style={styles.nearbyThumbPlaceholder}>
+                    <Text style={styles.nearbyThumbEmoji}>
+                      {TYPE_EMOJI[restaurant.type] || '🏪'}
+                    </Text>
+                  </View>
+                )}
                 <Text style={styles.nearbyName} numberOfLines={2}>
                   {restaurant.name}
                 </Text>
-                <Text style={styles.nearbyAction}>Xem gian hàng →</Text>
               </Pressable>
-            ))}
-          </ScrollView>
+            )}
+          />
         ) : null}
       </View>
     </View>
@@ -448,15 +515,22 @@ const styles = StyleSheet.create({
   },
   mapArea: {
     flex: 1,
-    minHeight: 260,
     position: 'relative',
   },
+  searchOverlay: {
+    position: 'absolute',
+    top: 8,
+    left: 0,
+    right: 0,
+    zIndex: 15,
+  },
   nearbyPanel: {
+    flex: 1,
     backgroundColor: '#ffffff',
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
     paddingTop: 12,
-    paddingBottom: 12,
+    paddingBottom: 8,
   },
   nearbyTitle: {
     fontSize: 12,
@@ -467,36 +541,52 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   nearbyList: {
-    paddingHorizontal: 12,
-    gap: 10,
+    paddingHorizontal: 10,
+    paddingBottom: 8,
+  },
+  nearbyRow: {
+    gap: 8,
+    marginBottom: 8,
   },
   nearbyCard: {
-    width: 140,
-    backgroundColor: '#f0fdfa',
-    borderRadius: 12,
-    padding: 12,
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f8fafc',
+    borderRadius: 10,
+    padding: 8,
     borderWidth: 1,
-    borderColor: '#99f6e4',
+    borderColor: '#e2e8f0',
+    gap: 8,
+    minHeight: 56,
   },
   nearbyCardPressed: {
-    opacity: 0.8,
-    backgroundColor: '#ccfbf1',
+    opacity: 0.85,
+    backgroundColor: '#f0fdfa',
   },
-  nearbyEmoji: {
-    fontSize: 28,
-    marginBottom: 6,
+  nearbyThumb: {
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+    backgroundColor: '#e2e8f0',
+  },
+  nearbyThumbPlaceholder: {
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+    backgroundColor: '#ccfbf1',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  nearbyThumbEmoji: {
+    fontSize: 20,
   },
   nearbyName: {
-    fontSize: 13,
-    fontWeight: '800',
+    flex: 1,
+    fontSize: 12,
+    fontWeight: '700',
     color: '#0f172a',
-    minHeight: 34,
-    marginBottom: 6,
-  },
-  nearbyAction: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#0f766e',
+    lineHeight: 16,
   },
   mapFab: {
     position: 'absolute',
@@ -574,7 +664,13 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '900',
     color: '#0f172a',
+    marginBottom: 4,
+  },
+  menuSummary: {
+    fontSize: 12,
+    color: '#64748b',
     marginBottom: 8,
+    fontWeight: '600',
   },
   menuSubHeader: {
     fontSize: 12,

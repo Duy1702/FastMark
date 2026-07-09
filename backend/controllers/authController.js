@@ -89,7 +89,6 @@ exports.registerEmail = async (req, res) => {
       verification: {
         expiresAt: result.verification.expiresAt,
         expiresInSeconds: result.verification.expiresInSeconds,
-        devCode: result.verification.code,
       },
     },
   });
@@ -189,7 +188,6 @@ exports.requestEmailVerification = async (req, res) => {
       email: result.user.Email,
       expiresAt: result.verification.expiresAt,
       expiresInSeconds: result.verification.expiresInSeconds,
-      devCode: result.verification.code,
     },
   });
 };

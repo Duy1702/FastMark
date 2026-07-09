@@ -419,7 +419,6 @@ export const requestEmailVerificationCode = createAsyncThunk(
         email: data.email,
         expiresAt: data.expiresAt,
         expiresInSeconds: data.expiresInSeconds,
-        devCode: data.devCode,
       };
     } catch (error) {
       return rejectWithReadableError(error, rejectWithValue);

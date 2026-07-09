@@ -16,5 +16,6 @@ export function normalizeStore(row) {
     rating_avg: Number.isFinite(ratingAvg) ? ratingAvg : 4.5,
     review_count: Number(row.review_count ?? 12),
     product_count: Number(row.product_count ?? 3),
+    image_url: row.image_url || '',
   };
 }

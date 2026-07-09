@@ -14,8 +14,8 @@ async function requireFirebaseAuth(req, res, next) {
   }
 
   try {
-    const admin = initFirebaseAdmin();
-    const decoded = await admin.auth().verifyIdToken(idToken);
+    const { auth } = initFirebaseAdmin();
+    const decoded = await auth.verifyIdToken(idToken);
     req.firebaseUser = decoded;
     return next();
   } catch (error) {
