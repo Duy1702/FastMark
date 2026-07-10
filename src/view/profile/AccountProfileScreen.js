@@ -260,6 +260,8 @@ export default function AccountProfileScreen({
   onOpenProduct,
   onEditAccount,
   onOpenActivity,
+  onOpenNotificationSettings,
+  onOpenInbox,
   onOpenSellerShopSettings,
   onOpenSellerOrders,
   onOpenSellerStats,
@@ -664,6 +666,15 @@ export default function AccountProfileScreen({
               >
                 <Text style={styles.menuItemText}>Hoạt động của tôi</Text>
               </Pressable>
+              <Pressable
+                onPress={() => {
+                  setMenuOpen(false);
+                  onOpenNotificationSettings?.();
+                }}
+                style={styles.menuItem}
+              >
+                <Text style={styles.menuItemText}>Cài đặt thông báo</Text>
+              </Pressable>
               {isSeller ? (
                 <>
                   <Pressable
@@ -838,6 +849,7 @@ export default function AccountProfileScreen({
               </Pressable>
             )}
             <Pressable
+              onPress={onOpenInbox}
               style={({ pressed }) => [styles.secondaryActionButton, pressed && styles.buttonPressed]}
             >
               <Text style={styles.secondaryActionText}>💬 Nhắn tin</Text>

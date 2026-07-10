@@ -1,4 +1,5 @@
 import { apiRequest, AUTH_TIMEOUT_MS } from './client';
+import { callWithAuthToken } from './authTokenHelper';
 import { API_ENDPOINTS } from './endpoints';
 
 const MESSAGE_TYPE_IMAGE = 1;
@@ -22,74 +23,80 @@ async function authHeaders(idToken) {
   };
 }
 
-export async function getBuyerConversationsOnBackend(idToken) {
-  const response = await apiRequest(
-    API_ENDPOINTS.buyerConversations,
-    { method: 'GET', headers: { Authorization: `Bearer ${idToken}` } },
-    AUTH_TIMEOUT_MS
-  );
-  const payload = await parseApiResponse(response);
-  return payload.data?.conversations || [];
+export async function getBuyerConversationsOnBackend() {
+  return callWithAuthToken(async (idToken) => {
+    const response = await apiRequest(
+      API_ENDPOINTS.buyerConversations,
+      { method: 'GET', headers: { Authorization: `Bearer ${idToken}` } },
+      AUTH_TIMEOUT_MS
+    );
+    const payload = await parseApiResponse(response);
+    return payload.data?.conversations || [];
+  });
 }
 
-export async function getBuyerShopsOnBackend(idToken) {
-  const response = await apiRequest(
-    API_ENDPOINTS.buyerShops,
-    { method: 'GET', headers: { Authorization: `Bearer ${idToken}` } },
-    AUTH_TIMEOUT_MS
-  );
-  const payload = await parseApiResponse(response);
-  return payload.data?.shops || [];
+export async function getBuyerShopsOnBackend() {
+  return callWithAuthToken(async (idToken) => {
+    const response = await apiRequest(
+      API_ENDPOINTS.buyerShops,
+      { method: 'GET', headers: { Authorization: `Bearer ${idToken}` } },
+      AUTH_TIMEOUT_MS
+    );
+    const payload = await parseApiResponse(response);
+    return payload.data?.shops || [];
+  });
 }
 
-export async function startBuyerConversationOnBackend({ idToken, shopId, content, imageContent }) {
-  const response = await apiRequest(
-    API_ENDPOINTS.buyerConversations,
-    {
-      method: 'POST',
-      headers: await authHeaders(idToken),
-      body: JSON.stringify({
-        shopId,
-        content,
-        imageContent,
-        messageType: imageContent ? MESSAGE_TYPE_IMAGE : undefined,
-      }),
-    },
-    AUTH_TIMEOUT_MS
-  );
-  const payload = await parseApiResponse(response);
-  return payload.data || {};
+export async function startBuyerConversationOnBackend({ shopId, shopName, content, imageContent }) {
+  return callWithAuthToken(async (idToken) => {
+    const response = await apiRequest(
+      API_ENDPOINTS.buyerConversations,
+      {
+        method: 'POST',
+        headers: await authHeaders(idToken),
+        body: JSON.stringify({
+          shopId,
+          shopName,
+          content,
+          imageContent,
+          messageType: imageContent ? MESSAGE_TYPE_IMAGE : undefined,
+        }),
+      },
+      AUTH_TIMEOUT_MS
+    );
+    const payload = await parseApiResponse(response);
+    return payload.data || {};
+  });
 }
 
-export async function getBuyerMessagesOnBackend(idToken, conversationId) {
-  const response = await apiRequest(
-    API_ENDPOINTS.buyerConversationMessages(conversationId),
-    { method: 'GET', headers: { Authorization: `Bearer ${idToken}` } },
-    AUTH_TIMEOUT_MS
-  );
-  const payload = await parseApiResponse(response);
-  return payload.data?.messages || [];
+export async function getBuyerMessagesOnBackend(conversationId) {
+  return callWithAuthToken(async (idToken) => {
+    const response = await apiRequest(
+      API_ENDPOINTS.buyerConversationMessages(conversationId),
+      { method: 'GET', headers: { Authorization: `Bearer ${idToken}` } },
+      AUTH_TIMEOUT_MS
+    );
+    const payload = await parseApiResponse(response);
+    return payload.data?.messages || [];
+  });
 }
 
-export async function sendBuyerMessageOnBackend({
-  idToken,
-  conversationId,
-  content,
-  imageContent,
-}) {
-  const response = await apiRequest(
-    API_ENDPOINTS.buyerConversationMessages(conversationId),
-    {
-      method: 'POST',
-      headers: await authHeaders(idToken),
-      body: JSON.stringify({
-        content,
-        imageContent,
-        messageType: imageContent ? MESSAGE_TYPE_IMAGE : undefined,
-      }),
-    },
-    AUTH_TIMEOUT_MS
-  );
-  const payload = await parseApiResponse(response);
-  return payload.data?.message;
+export async function sendBuyerMessageOnBackend({ conversationId, content, imageContent }) {
+  return callWithAuthToken(async (idToken) => {
+    const response = await apiRequest(
+      API_ENDPOINTS.buyerConversationMessages(conversationId),
+      {
+        method: 'POST',
+        headers: await authHeaders(idToken),
+        body: JSON.stringify({
+          content,
+          imageContent,
+          messageType: imageContent ? MESSAGE_TYPE_IMAGE : undefined,
+        }),
+      },
+      AUTH_TIMEOUT_MS
+    );
+    const payload = await parseApiResponse(response);
+    return payload.data?.message;
+  });
 }

@@ -56,6 +56,7 @@ export default function AuthenticatedHome() {
   const [sellerRegisterRequest, setSellerRegisterRequest] = useState(0);
   const [productDetailId, setProductDetailId] = useState(null);
   const [productRefreshKey, setProductRefreshKey] = useState(0);
+  const [inboxChatRequest, setInboxChatRequest] = useState(null);
 
   useSellerAccessSync({
     enabled: true,
@@ -90,11 +91,23 @@ export default function AuthenticatedHome() {
     setActiveTab('profile');
   }
 
+  function handleOpenChat({ shopId, shopName }) {
+    if (!shopId) {
+      return;
+    }
+    setInboxChatRequest({
+      shopId: String(shopId),
+      shopName: shopName || 'Gian hàng',
+      at: Date.now(),
+    });
+    setActiveTab('inbox');
+  }
+
   return (
     <View style={styles.root}>
       <View style={styles.content}>
         <View style={[styles.tabPane, activeTab !== 'home' && styles.tabHidden]}>
-          <MapScreen focusStoreRequest={mapFocusRequest} />
+          <MapScreen focusStoreRequest={mapFocusRequest} onOpenChat={handleOpenChat} />
         </View>
         <View style={[styles.tabPane, activeTab !== 'products' && styles.tabHidden]}>
           <ProductsScreen />
@@ -106,11 +119,12 @@ export default function AuthenticatedHome() {
           />
         </View>
         <View style={[styles.tabPane, activeTab !== 'inbox' && styles.tabHidden]}>
-          <InboxScreen />
+          <InboxScreen chatRequest={inboxChatRequest} />
         </View>
         <View style={[styles.tabPane, activeTab !== 'profile' && styles.tabHidden]}>
           <ProfilePanel
             onOpenStore={handleOpenStoreFromProfile}
+            onOpenInbox={() => setActiveTab('inbox')}
             sellerRegisterRequest={sellerRegisterRequest}
             isProfileVisible={activeTab === 'profile'}
             productDetailId={productDetailId}

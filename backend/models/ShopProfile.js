@@ -3,6 +3,8 @@ const mongoose = require("mongoose");
 const ShopProfileSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
 
+  externalRestaurantId: { type: String, default: "", index: true, sparse: true },
+
   description: String,
   address: String,
   DiaChiHeThong: String,

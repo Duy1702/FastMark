@@ -1,4 +1,5 @@
 const messageService = require("../services/messageService");
+const buyerReviewService = require("../services/buyerReviewService");
 const { success, fail } = require("../utils/apiResponse");
 
 function pickBodyValue(body, keys) {
@@ -27,10 +28,12 @@ exports.startConversation = async (req, res) => {
   }
 
   const content = pickBodyValue(req.body, ["content", "message"]);
+  const shopName = pickBodyValue(req.body, ["shopName", "shop_name"]);
   const messageType = req.body.messageType;
   const imageContent = pickBodyValue(req.body, ["imageContent", "imageUri"]);
 
   const result = await messageService.startConversationWithShop(req.currentUser, shopId, {
+    shopName,
     content,
     messageType,
     imageContent,
@@ -69,4 +72,47 @@ exports.sendMessage = async (req, res) => {
     message: "Đã gửi tin nhắn.",
     data: { message },
   });
+};
+
+exports.listReviews = async (req, res) => {
+  const reviews = await buyerReviewService.listBuyerReviews(req.currentUser);
+  return success(res, { data: { reviews } });
+};
+
+exports.createReview = async (req, res) => {
+  const rating = req.body.rating;
+  if (rating === undefined || rating === null || rating === "") {
+    return fail(res, { status: 400, message: "Vui lòng chọn số sao." });
+  }
+
+  const review = await buyerReviewService.createBuyerReview(req.currentUser, {
+    storeId: pickBodyValue(req.body, ["storeId", "store_id"]),
+    storeName: pickBodyValue(req.body, ["storeName", "store_name"]),
+    productName: pickBodyValue(req.body, ["productName", "product_name"]),
+    orderCode: pickBodyValue(req.body, ["orderCode", "order_code"]),
+    rating,
+    comment: pickBodyValue(req.body, ["comment", "message"]),
+    imageUrl: pickBodyValue(req.body, ["imageUrl", "image_url", "imageContent", "imageUri"]),
+  });
+
+  return success(res, {
+    message: "Đã gửi đánh giá.",
+    data: { review },
+  });
+};
+
+exports.updateReview = async (req, res) => {
+  const review = await buyerReviewService.updateBuyerReview(req.currentUser, req.params.id, {
+    rating: req.body.rating,
+    comment: req.body.comment,
+  });
+  return success(res, {
+    message: "Đã cập nhật đánh giá.",
+    data: { review },
+  });
+};
+
+exports.deleteReview = async (req, res) => {
+  await buyerReviewService.deleteBuyerReview(req.currentUser, req.params.id);
+  return success(res, { message: "Đã xóa đánh giá." });
 };

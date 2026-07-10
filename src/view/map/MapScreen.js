@@ -18,7 +18,7 @@ const TYPE_EMOJI = {
   snack: '🍿',
 };
 
-export default function MapScreen({ children, focusStoreRequest }) {
+export default function MapScreen({ children, focusStoreRequest, onOpenChat }) {
   const watcherRef = useRef(null);
   const mountedRef = useRef(false);
   const [currentLocation, setCurrentLocation] = useState(null);
@@ -346,6 +346,7 @@ export default function MapScreen({ children, focusStoreRequest }) {
         storeId={storeNav.storeId}
         onBack={closeStoreNav}
         onProductPress={openProduct}
+        onOpenChat={onOpenChat}
       />
     );
   }
@@ -356,6 +357,7 @@ export default function MapScreen({ children, focusStoreRequest }) {
         productId={storeNav.productId}
         onBack={goBackStoreNav}
         onStorePress={openStore}
+        onOpenChat={onOpenChat}
       />
     );
   }

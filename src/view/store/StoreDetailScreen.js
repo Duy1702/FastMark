@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Image,
   Pressable,
   ScrollView,
@@ -16,6 +17,7 @@ import {
 } from '../../viewmodel/store/storeViewModel';
 import ContactActions from './components/ContactActions';
 import StarRating from './components/StarRating';
+import ReportSheet from '../shared/components/ReportSheet';
 import { storeLogger as log } from '../../core/utils/logger';
 
 const TABS = [
@@ -40,12 +42,13 @@ function formatDate(iso) {
   return new Date(iso).toLocaleDateString('vi-VN');
 }
 
-export default function StoreDetailScreen({ storeId, onBack, onProductPress }) {
+export default function StoreDetailScreen({ storeId, onBack, onProductPress, onOpenChat }) {
   const [store, setStore] = useState(null);
   const [products, setProducts] = useState([]);
   const [reviews, setReviews] = useState([]);
   const [activeTab, setActiveTab] = useState('products');
   const [loading, setLoading] = useState(true);
+  const [reportVisible, setReportVisible] = useState(false);
 
   useEffect(() => {
     let isCurrent = true;
@@ -102,12 +105,29 @@ export default function StoreDetailScreen({ storeId, onBack, onProductPress }) {
 
   const emoji = STORE_TYPE_EMOJI[store.type] || '🏪';
 
+  function handleReportSubmit(reason) {
+    setReportVisible(false);
+    Alert.alert('Đã gửi báo cáo', `Cảm ơn bạn. Chúng tôi đã ghi nhận: "${reason}".`);
+  }
+
+  function handleOpenChat() {
+    onOpenChat?.({ shopId: store.id, shopName: store.name });
+  }
+
   return (
     <View style={styles.screen}>
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
         <View style={styles.header}>
           <Pressable onPress={onBack} style={styles.backBtn} accessibilityRole="button">
             <Text style={styles.backBtnText}>←</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => setReportVisible(true)}
+            style={styles.reportBtn}
+            accessibilityRole="button"
+            accessibilityLabel="Báo cáo gian hàng"
+          >
+            <Text style={styles.reportBtnText}>⋯</Text>
           </Pressable>
           <View style={styles.cover}>
             {store.image_url ? (
@@ -144,6 +164,12 @@ export default function StoreDetailScreen({ storeId, onBack, onProductPress }) {
         </View>
 
         <View style={styles.contactSection}>
+          <Pressable
+            style={({ pressed }) => [styles.messageButton, pressed && styles.pressed]}
+            onPress={handleOpenChat}
+          >
+            <Text style={styles.messageButtonText}>💬 Nhắn tin</Text>
+          </Pressable>
           <ContactActions phone={store.phone} zalo={store.zalo} />
         </View>
 
@@ -238,6 +264,13 @@ export default function StoreDetailScreen({ storeId, onBack, onProductPress }) {
           </View>
         )}
       </ScrollView>
+
+      <ReportSheet
+        visible={reportVisible}
+        title="Báo cáo gian hàng"
+        onClose={() => setReportVisible(false)}
+        onSubmit={handleReportSubmit}
+      />
     </View>
   );
 }
@@ -296,6 +329,29 @@ const styles = StyleSheet.create({
     fontSize: 20,
     color: '#0f172a',
     fontWeight: '700',
+  },
+  reportBtn: {
+    position: 'absolute',
+    top: 48,
+    right: 16,
+    zIndex: 10,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.9)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  reportBtnText: {
+    fontSize: 22,
+    color: '#0f172a',
+    fontWeight: '900',
+    lineHeight: 24,
   },
   cover: {
     height: 140,
@@ -366,6 +422,19 @@ const styles = StyleSheet.create({
     padding: 16,
     borderBottomWidth: 1,
     borderBottomColor: '#e2e8f0',
+    gap: 12,
+  },
+  messageButton: {
+    minHeight: 44,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#0f766e',
+  },
+  messageButtonText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '900',
   },
   tabBar: {
     flexDirection: 'row',

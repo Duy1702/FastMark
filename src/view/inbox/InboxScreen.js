@@ -12,7 +12,6 @@ import {
   getBuyerConversationsOnBackend,
   getBuyerShopsOnBackend,
 } from '../../api/messageApi';
-import { getCurrentUserIdToken } from '../../repository/authRepository';
 import BuyerChatScreen from './BuyerChatScreen';
 
 const INBOX_TABS = [
@@ -77,7 +76,7 @@ function buildShopSuggestions(conversations, shops) {
     }));
 }
 
-export default function InboxScreen() {
+export default function InboxScreen({ chatRequest = null }) {
   const [activeTab, setActiveTab] = useState('messages');
   const [searchQuery, setSearchQuery] = useState('');
   const [conversations, setConversations] = useState([]);
@@ -91,10 +90,9 @@ export default function InboxScreen() {
     setLoadError('');
 
     try {
-      const idToken = await getCurrentUserIdToken();
       const [conversationRows, shopRows] = await Promise.all([
-        getBuyerConversationsOnBackend(idToken),
-        getBuyerShopsOnBackend(idToken),
+        getBuyerConversationsOnBackend(),
+        getBuyerShopsOnBackend(),
       ]);
 
       setConversations(Array.isArray(conversationRows) ? conversationRows : []);
@@ -113,6 +111,19 @@ export default function InboxScreen() {
       loadConversations();
     }
   }, [activeTab, loadConversations]);
+
+  useEffect(() => {
+    if (!chatRequest?.shopId) {
+      return;
+    }
+
+    setActiveTab('messages');
+    setSelectedChat({
+      conversationId: null,
+      shopId: chatRequest.shopId,
+      shopName: chatRequest.shopName || 'Gian hàng',
+    });
+  }, [chatRequest?.at, chatRequest?.shopId, chatRequest?.shopName]);
 
   const messageConversations = useMemo(() => {
     const merged = [...conversations, ...shopSuggestions];

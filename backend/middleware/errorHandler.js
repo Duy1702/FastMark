@@ -17,6 +17,13 @@ function errorHandler(error, req, res, next) {
     });
   }
 
+  if (error?.name === 'CastError') {
+    return res.status(400).json({
+      success: false,
+      message: 'Mã gian hàng hoặc cuộc trò chuyện không hợp lệ.',
+    });
+  }
+
   if (error?.code === 11000) {
     const field = Object.keys(error.keyPattern || {})[0] || 'dữ liệu';
     const duplicateValue = error.keyValue?.[field];

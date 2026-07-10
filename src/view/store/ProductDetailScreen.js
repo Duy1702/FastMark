@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -11,16 +12,18 @@ import {
 import { loadProductById, loadStoreById } from '../../viewmodel/store/storeViewModel';
 import ContactActions from './components/ContactActions';
 import StarRating from './components/StarRating';
+import ReportSheet from '../shared/components/ReportSheet';
 import { storeLogger as log } from '../../core/utils/logger';
 
 function formatPrice(price) {
   return `${Number(price).toLocaleString('vi-VN')}đ`;
 }
 
-export default function ProductDetailScreen({ productId, onBack, onStorePress }) {
+export default function ProductDetailScreen({ productId, onBack, onStorePress, onOpenChat }) {
   const [product, setProduct] = useState(null);
   const [store, setStore] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [reportVisible, setReportVisible] = useState(false);
 
   useEffect(() => {
     let isCurrent = true;
@@ -72,12 +75,32 @@ export default function ProductDetailScreen({ productId, onBack, onStorePress })
     );
   }
 
+  function handleReportSubmit(reason) {
+    setReportVisible(false);
+    Alert.alert('Đã gửi báo cáo', `Cảm ơn bạn. Chúng tôi đã ghi nhận: "${reason}".`);
+  }
+
+  function handleOpenChat() {
+    if (!store?.id) {
+      return;
+    }
+    onOpenChat?.({ shopId: store.id, shopName: store.name });
+  }
+
   return (
     <View style={styles.screen}>
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
         <View style={styles.imageSection}>
           <Pressable onPress={onBack} style={styles.backBtn} accessibilityRole="button">
             <Text style={styles.backBtnText}>←</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => setReportVisible(true)}
+            style={styles.reportBtn}
+            accessibilityRole="button"
+            accessibilityLabel="Báo cáo sản phẩm"
+          >
+            <Text style={styles.reportBtnText}>⋯</Text>
           </Pressable>
           <View style={styles.imageBox}>
             <Text style={styles.productEmoji}>{product.image_emoji}</Text>
@@ -120,9 +143,24 @@ export default function ProductDetailScreen({ productId, onBack, onStorePress })
 
       {store && (
         <View style={styles.bottomBar}>
-          <ContactActions phone={store.phone} zalo={store.zalo} compact />
+          <Pressable
+            style={({ pressed }) => [styles.chatButton, pressed && styles.pressed]}
+            onPress={handleOpenChat}
+          >
+            <Text style={styles.chatButtonText}>💬 Chat ngay</Text>
+          </Pressable>
+          <View style={styles.contactWrap}>
+            <ContactActions phone={store.phone} zalo={store.zalo} compact />
+          </View>
         </View>
       )}
+
+      <ReportSheet
+        visible={reportVisible}
+        title="Báo cáo sản phẩm"
+        onClose={() => setReportVisible(false)}
+        onSubmit={handleReportSubmit}
+      />
     </View>
   );
 }
@@ -180,6 +218,29 @@ const styles = StyleSheet.create({
     fontSize: 20,
     color: '#0f172a',
     fontWeight: '700',
+  },
+  reportBtn: {
+    position: 'absolute',
+    top: 48,
+    right: 16,
+    zIndex: 10,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.9)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  reportBtnText: {
+    fontSize: 22,
+    color: '#0f172a',
+    fontWeight: '900',
+    lineHeight: 24,
   },
   imageBox: {
     height: 280,
@@ -292,5 +353,24 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.08,
     shadowRadius: 12,
     elevation: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  chatButton: {
+    minHeight: 44,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#0f766e',
+  },
+  chatButtonText: {
+    color: '#ffffff',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  contactWrap: {
+    flex: 1,
   },
 });

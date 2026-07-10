@@ -17,7 +17,6 @@ import {
   sendBuyerMessageOnBackend,
   startBuyerConversationOnBackend,
 } from '../../api/messageApi';
-import { getCurrentUserIdToken } from '../../repository/authRepository';
 
 const MESSAGE_STATUS_LABEL = {
   sent: 'Đã gửi',
@@ -132,8 +131,7 @@ export default function BuyerChatScreen({ conversationId, shopId, shopName, onBa
       throw new Error('Không tìm thấy gian hàng để nhắn tin.');
     }
 
-    const idToken = await getCurrentUserIdToken();
-    const result = await startBuyerConversationOnBackend({ idToken, shopId });
+    const result = await startBuyerConversationOnBackend({ shopId, shopName: displayName });
     const nextId = String(result.conversationId || '');
     if (!nextId) {
       throw new Error('Không tạo được cuộc trò chuyện.');
@@ -141,7 +139,7 @@ export default function BuyerChatScreen({ conversationId, shopId, shopName, onBa
 
     setResolvedConversationId(nextId);
     return nextId;
-  }, [resolvedConversationId, shopId]);
+  }, [resolvedConversationId, shopId, displayName]);
 
   const loadMessages = useCallback(async () => {
     setIsLoading(true);
@@ -149,8 +147,7 @@ export default function BuyerChatScreen({ conversationId, shopId, shopName, onBa
 
     try {
       const activeConversationId = await ensureConversation();
-      const idToken = await getCurrentUserIdToken();
-      const data = await getBuyerMessagesOnBackend(idToken, activeConversationId);
+      const data = await getBuyerMessagesOnBackend(activeConversationId);
       setMessages(Array.isArray(data) ? data : []);
     } catch (loadError) {
       setMessages([]);
@@ -184,9 +181,7 @@ export default function BuyerChatScreen({ conversationId, shopId, shopName, onBa
 
     try {
       const activeConversationId = await ensureConversation();
-      const idToken = await getCurrentUserIdToken();
       const message = await sendBuyerMessageOnBackend({
-        idToken,
         conversationId: activeConversationId,
         content,
       });
@@ -235,9 +230,7 @@ export default function BuyerChatScreen({ conversationId, shopId, shopName, onBa
 
     try {
       const activeConversationId = await ensureConversation();
-      const idToken = await getCurrentUserIdToken();
       const message = await sendBuyerMessageOnBackend({
-        idToken,
         conversationId: activeConversationId,
         imageContent,
       });
