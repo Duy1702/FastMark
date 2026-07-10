@@ -17,6 +17,8 @@ import { getCurrentUserIdToken } from '../../repository/authRepository';
 import { getSellerShopSettingsOnBackend } from '../../api/sellerOpsApi';
 import AccountProfileScreen from '../profile/AccountProfileScreen';
 import EditAccountScreen from '../profile/EditAccountScreen';
+import MyActivityScreen from '../profile/MyActivityScreen';
+import NotificationSettingsScreen from '../profile/NotificationSettingsScreen';
 import PurchasedProductsScreen from '../profile/PurchasedProductsScreen';
 import ReservationHistoryScreen from '../profile/ReservationHistoryScreen';
 import VisitedStoresScreen from '../profile/VisitedStoresScreen';
@@ -35,6 +37,7 @@ import { SELLER_VERIFICATION_STATUS } from '../../constants/sellerVerification';
 export default function ProfilePanel({
   profileMode = 'buyer',
   onOpenStore,
+  onOpenInbox,
   sellerRegisterRequest = 0,
   isProfileVisible = false,
   productDetailId = null,
@@ -260,6 +263,19 @@ export default function ProfilePanel({
     return <EditAccountScreen onBack={() => setProfileNav(null)} />;
   }
 
+  if (profileNav === 'my-activity') {
+    return (
+      <MyActivityScreen
+        onBack={() => setProfileNav(null)}
+        onOpenStore={onOpenStore}
+      />
+    );
+  }
+
+  if (profileNav === 'notification-settings') {
+    return <NotificationSettingsScreen onBack={() => setProfileNav(null)} />;
+  }
+
   if (profileNav === 'reservation-history') {
     return (
       <ReservationHistoryScreen
@@ -307,7 +323,9 @@ export default function ProfilePanel({
         shopSettings={shopSettings}
         onOpenProduct={(productId) => onOpenProductDetail?.(productId)}
         onEditAccount={() => setProfileNav('edit-account')}
-        onOpenActivity={() => setProfileNav('reservation-history')}
+        onOpenActivity={() => setProfileNav('my-activity')}
+        onOpenNotificationSettings={() => setProfileNav('notification-settings')}
+        onOpenInbox={onOpenInbox}
         onOpenSellerShopSettings={() => setProfileNav('seller-shop-settings')}
         onOpenSellerOrders={() => setProfileNav('seller-orders')}
         onOpenSellerStats={() => setProfileNav('seller-stats')}

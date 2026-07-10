@@ -77,6 +77,7 @@ export const MOCK_PURCHASES = [
     quantity: 2,
     purchasedAt: '2026-07-04T08:15:00',
     imageEmoji: '☕',
+    status: 'Hoàn thành',
   },
   {
     id: 'pur2',
@@ -88,6 +89,7 @@ export const MOCK_PURCHASES = [
     quantity: 1,
     purchasedAt: '2026-07-03T12:30:00',
     imageEmoji: '🥖',
+    status: 'Đã giao',
   },
   {
     id: 'pur3',
@@ -99,6 +101,7 @@ export const MOCK_PURCHASES = [
     quantity: 1,
     purchasedAt: '2026-07-01T17:00:00',
     imageEmoji: '🧋',
+    status: 'Đang giao',
   },
   {
     id: 'pur4',
@@ -110,6 +113,7 @@ export const MOCK_PURCHASES = [
     quantity: 1,
     purchasedAt: '2026-06-28T07:30:00',
     imageEmoji: '🍜',
+    status: 'Hoàn thành',
   },
 ];
 
@@ -133,3 +137,57 @@ export function getStoreTypeEmoji(type) {
 export function getReservationStatusLabel(status) {
   return RESERVATION_STATUS_LABEL[status] || status;
 }
+
+export function addMockMyReview({
+  storeId,
+  storeName,
+  productName,
+  orderCode,
+  rating,
+  comment,
+  imageUrl,
+}) {
+  const review = {
+    id: `rev-${Date.now()}`,
+    storeId: String(storeId || ''),
+    storeName: storeName || 'Gian hàng',
+    productName: productName || '',
+    orderCode: String(orderCode || ''),
+    rating: Number(rating) || 5,
+    comment: comment || '',
+    imageUrl: imageUrl || '',
+    createdAt: new Date().toISOString(),
+  };
+  MOCK_MY_REVIEWS.unshift(review);
+  return review;
+}
+
+export const MOCK_MY_REVIEWS = [
+  {
+    id: 'rev-1',
+    storeId: '1',
+    storeName: 'Cà phê Vy',
+    productName: 'Cà phê sữa đá',
+    rating: 5,
+    comment: 'Đồ uống ngon, phục vụ nhanh.',
+    createdAt: '2026-07-04T09:00:00',
+  },
+  {
+    id: 'rev-2',
+    storeId: '2',
+    storeName: 'Bánh Mì Huỳnh Hoa',
+    productName: 'Bánh mì thịt nướng',
+    rating: 4,
+    comment: 'Vị ổn, hơi đông khách buổi trưa.',
+    createdAt: '2026-07-02T14:30:00',
+  },
+  {
+    id: 'rev-3',
+    storeId: '4',
+    storeName: 'Trà Sữa Gong Cha',
+    productName: 'Trà sữa trân châu đường đen',
+    rating: 5,
+    comment: 'Trân châu dai, vị vừa miệng.',
+    createdAt: '2026-06-28T18:15:00',
+  },
+];

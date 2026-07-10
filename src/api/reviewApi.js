@@ -1,30 +1,88 @@
-import {
-  collection,
-  getDocs,
-  query,
-  where,
-} from 'firebase/firestore';
+import { apiRequest, AUTH_TIMEOUT_MS } from './client';
+import { API_ENDPOINTS } from './endpoints';
 
-import { createLogger } from '../core/utils/logger';
-import { getFirestoreDb } from '../core/config/firestoreDb';
-import { normalizeReview } from '../model/reviewModel';
+async function parseApiResponse(response) {
+  const payload = await response.json().catch(() => ({}));
 
-const log = createLogger('ReviewApi');
-const REVIEWS_COLLECTION = 'reviews';
-
-export async function fetchReviewsFromFirestore(storeId) {
-  log.info('fetchReviewsFromFirestore:start', { storeId });
-
-  const db = getFirestoreDb();
-  const snapshot = await getDocs(
-    query(collection(db, REVIEWS_COLLECTION), where('store_id', '==', String(storeId)))
-  );
-
-  if (snapshot.empty) {
-    return [];
+  if (!response.ok || payload.success === false) {
+    const error = new Error(payload.message || 'Yêu cầu API thất bại.');
+    error.statusCode = response.status;
+    throw error;
   }
 
-  return snapshot.docs
-    .map((docSnap) => normalizeReview({ id: docSnap.id, ...docSnap.data() }))
-    .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+  return payload;
+}
+
+async function authHeaders(idToken) {
+  return {
+    Authorization: `Bearer ${idToken}`,
+    'Content-Type': 'application/json',
+  };
+}
+
+export async function getMyReviewsOnBackend(idToken) {
+  const response = await apiRequest(
+    API_ENDPOINTS.buyerReviews,
+    { method: 'GET', headers: { Authorization: `Bearer ${idToken}` } },
+    AUTH_TIMEOUT_MS
+  );
+  const payload = await parseApiResponse(response);
+  return payload.data?.reviews || [];
+}
+
+export async function submitBuyerReviewOnBackend({
+  idToken,
+  storeId,
+  storeName,
+  productName,
+  orderCode,
+  rating,
+  comment,
+  imageUrl,
+}) {
+  const response = await apiRequest(
+    API_ENDPOINTS.buyerReviews,
+    {
+      method: 'POST',
+      headers: await authHeaders(idToken),
+      body: JSON.stringify({
+        storeId,
+        storeName,
+        productName,
+        orderCode,
+        rating,
+        comment,
+        imageUrl,
+      }),
+    },
+    AUTH_TIMEOUT_MS
+  );
+  const payload = await parseApiResponse(response);
+  return payload.data?.review;
+}
+
+export async function updateBuyerReviewOnBackend({ idToken, reviewId, rating, comment }) {
+  const response = await apiRequest(
+    API_ENDPOINTS.buyerReview(reviewId),
+    {
+      method: 'PUT',
+      headers: await authHeaders(idToken),
+      body: JSON.stringify({ rating, comment }),
+    },
+    AUTH_TIMEOUT_MS
+  );
+  const payload = await parseApiResponse(response);
+  return payload.data?.review;
+}
+
+export async function deleteBuyerReviewOnBackend(idToken, reviewId) {
+  const response = await apiRequest(
+    API_ENDPOINTS.buyerReview(reviewId),
+    {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${idToken}` },
+    },
+    AUTH_TIMEOUT_MS
+  );
+  await parseApiResponse(response);
 }

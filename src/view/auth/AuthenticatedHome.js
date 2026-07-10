@@ -80,6 +80,7 @@ export default function AuthenticatedHome() {
   const [sellerRegisterRequest, setSellerRegisterRequest] = useState(0);
   const [productDetailId, setProductDetailId] = useState(null);
   const [productRefreshKey, setProductRefreshKey] = useState(0);
+  const [inboxChatRequest, setInboxChatRequest] = useState(null);
 
   useSellerAccessSync({
     enabled: true,
@@ -143,6 +144,18 @@ export default function AuthenticatedHome() {
     setActiveTab('profile');
   }
 
+  function handleOpenChat({ shopId, shopName }) {
+    if (!shopId) {
+      return;
+    }
+    setInboxChatRequest({
+      shopId: String(shopId),
+      shopName: shopName || 'Gian hàng',
+      at: Date.now(),
+    });
+    setActiveTab('inbox');
+  }
+
   async function handleSwitchToSellerMode() {
     if (!isSeller) {
       handleStartSellerRegister();
@@ -158,15 +171,18 @@ export default function AuthenticatedHome() {
   const tabPanes = useMemo(() => {
     if (isBuyerMode) {
       return {
-        home: <MapScreen focusStoreRequest={mapFocusRequest} />,
+        home: (
+          <MapScreen focusStoreRequest={mapFocusRequest} onOpenChat={handleOpenChat} />
+        ),
         search: <SearchScreen onSelectLocation={handleSearchSelect} />,
         products: <ProductsScreen />,
         orders: <BuyerOrdersScreen onOpenStore={handleOpenStoreFromProfile} />,
-        inbox: <InboxScreen buyerView />,
+        inbox: <InboxScreen buyerView chatRequest={inboxChatRequest} />,
         profile: (
           <ProfilePanel
             profileMode="buyer"
             onOpenStore={handleOpenStoreFromProfile}
+            onOpenInbox={() => setActiveTab('inbox')}
             sellerRegisterRequest={sellerRegisterRequest}
             isProfileVisible={activeTab === 'profile'}
             productDetailId={productDetailId}
@@ -218,6 +234,7 @@ export default function AuthenticatedHome() {
     handleSwitchToSellerMode,
     isBuyerMode,
     isSeller,
+    inboxChatRequest,
     mapFocusRequest,
     productDetailId,
     productRefreshKey,

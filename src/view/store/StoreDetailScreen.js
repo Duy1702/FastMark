@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Image,
   Pressable,
   ScrollView,
@@ -16,9 +17,9 @@ import {
 } from '../../viewmodel/store/storeViewModel';
 import ContactActions from './components/ContactActions';
 import StarRating from './components/StarRating';
+import ReportSheet from '../shared/components/ReportSheet';
 import { formatPriceRange } from '../../core/utils/productFormat';
 import { storeLogger as log } from '../../core/utils/logger';
-
 const TABS = [
   { key: 'products', label: 'Sản phẩm' },
   { key: 'reviews', label: 'Đánh giá' },
@@ -78,19 +79,18 @@ function StatCard({ label, value }) {
   );
 }
 
-export default function StoreDetailScreen({ storeId, onBack, onProductPress }) {
-  const [store, setStore] = useState(null);
+export default function StoreDetailScreen({ storeId, onBack, onProductPress, onOpenChat }) {  const [store, setStore] = useState(null);
   const [products, setProducts] = useState([]);
   const [reviews, setReviews] = useState([]);
   const [activeTab, setActiveTab] = useState('products');
   const [loading, setLoading] = useState(true);
+  const [reportVisible, setReportVisible] = useState(false);
   const [isFollowing, setIsFollowing] = useState(false);
   const [likedProducts, setLikedProducts] = useState({});
 
   const toggleLikeProduct = (productId) => {
     setLikedProducts((prev) => ({ ...prev, [productId]: !prev[productId] }));
   };
-
   useEffect(() => {
     let isCurrent = true;
     setLoading(true);
@@ -148,6 +148,15 @@ export default function StoreDetailScreen({ storeId, onBack, onProductPress }) {
   const hoursText = formatHours(store.open_time, store.close_time);
   const coverImage = store.cover_image_url || store.image_url;
 
+  function handleReportSubmit(reason) {
+    setReportVisible(false);
+    Alert.alert('Đã gửi báo cáo', `Cảm ơn bạn. Chúng tôi đã ghi nhận: "${reason}".`);
+  }
+
+  function handleOpenChat() {
+    onOpenChat?.({ shopId: store.id, shopName: store.name });
+  }
+
   return (
     <View style={styles.screen}>
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
@@ -155,7 +164,14 @@ export default function StoreDetailScreen({ storeId, onBack, onProductPress }) {
           <Pressable onPress={onBack} style={styles.backBtn} accessibilityRole="button">
             <Text style={styles.backBtnText}>←</Text>
           </Pressable>
-
+          <Pressable
+            onPress={() => setReportVisible(true)}
+            style={styles.reportBtn}
+            accessibilityRole="button"
+            accessibilityLabel="Báo cáo gian hàng"
+          >
+            <Text style={styles.reportBtnText}>⋯</Text>
+          </Pressable>
           <View style={styles.cover}>
             {coverImage ? (
               <Image source={{ uri: coverImage }} style={styles.coverImage} />
@@ -211,6 +227,13 @@ export default function StoreDetailScreen({ storeId, onBack, onProductPress }) {
         <View style={styles.sectionCard}>
           <Text style={styles.sectionTitle}>Thông tin liên hệ</Text>
 
+          <Pressable
+            style={({ pressed }) => [styles.messageButton, pressed && styles.pressed]}
+            onPress={handleOpenChat}
+          >
+            <Text style={styles.messageButtonText}>💬 Nhắn tin</Text>
+          </Pressable>
+
           <InfoRow label="Địa chỉ" value={store.user_address} />
           <InfoRow label="Địa chỉ hệ thống" value={store.system_address} />
           <InfoRow label="Số điện thoại" value={store.phone} />
@@ -225,7 +248,6 @@ export default function StoreDetailScreen({ storeId, onBack, onProductPress }) {
             <ContactActions phone={store.phone} zalo={store.zalo} />
           </View>
         </View>
-
         <View style={styles.tabBar}>
           {TABS.map((tab) => {
             const isActive = activeTab === tab.key;
@@ -320,6 +342,13 @@ export default function StoreDetailScreen({ storeId, onBack, onProductPress }) {
           </View>
         )}
       </ScrollView>
+
+      <ReportSheet
+        visible={reportVisible}
+        title="Báo cáo gian hàng"
+        onClose={() => setReportVisible(false)}
+        onSubmit={handleReportSubmit}
+      />
     </View>
   );
 }
@@ -378,6 +407,29 @@ const styles = StyleSheet.create({
     fontSize: 20,
     color: '#0f172a',
     fontWeight: '700',
+  },
+  reportBtn: {
+    position: 'absolute',
+    top: 48,
+    right: 16,
+    zIndex: 10,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.9)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  reportBtnText: {
+    fontSize: 22,
+    color: '#0f172a',
+    fontWeight: '900',
+    lineHeight: 24,
   },
   cover: {
     height: 180,
@@ -488,12 +540,25 @@ const styles = StyleSheet.create({
     padding: 16,
     borderWidth: 1,
     borderColor: '#e2e8f0',
+    gap: 12,
+  },
+  messageButton: {
+    minHeight: 44,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#0f766e',
+  },
+  messageButtonText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '900',
   },
   sectionTitle: {
     fontSize: 16,
     fontWeight: '800',
     color: '#0f172a',
-    marginBottom: 12,
+    marginBottom: 4,
   },
   infoRow: {
     marginBottom: 10,
@@ -510,51 +575,9 @@ const styles = StyleSheet.create({
     color: '#0f172a',
     fontWeight: '600',
   },
-  infoLabel: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#94a3b8',
-    textTransform: 'uppercase',
-    letterSpacing: 0.3,
-    marginBottom: 4,
-  },
-  infoValue: {
-    fontSize: 14,
-    color: '#334155',
-    lineHeight: 20,
-    fontWeight: '600',
-  },
-  openStatusRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 14,
-  },
-  openBadge: {
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-  openBadgeActive: {
-    backgroundColor: '#dcfce7',
-  },
-  openBadgeClosed: {
-    backgroundColor: '#fee2e2',
-  },
-  openBadgeText: {
-    fontSize: 12,
-    fontWeight: '800',
-  },
-  openBadgeTextActive: {
-    color: '#15803d',
-  },
-  openBadgeTextClosed: {
-    color: '#b91c1c',
-  },
   contactActions: {
     marginTop: 4,
-  },
-  tabBar: {
+  },  tabBar: {
     flexDirection: 'row',
     backgroundColor: '#ffffff',
     marginHorizontal: 16,

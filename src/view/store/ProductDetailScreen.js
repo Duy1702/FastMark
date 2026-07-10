@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Image,
   Pressable,
   ScrollView,
@@ -11,8 +12,10 @@ import {
 
 import { formatPrice, formatPriceRange } from '../../core/utils/productFormat';
 import { loadProductById, loadStoreById } from '../../viewmodel/store/storeViewModel';
+import ContactActions from './components/ContactActions';
+import StarRating from './components/StarRating';
+import ReportSheet from '../shared/components/ReportSheet';
 import { storeLogger as log } from '../../core/utils/logger';
-
 function VariantImage({ image }) {
   const uri = image?.imageUrl;
   if (!uri) {
@@ -25,6 +28,8 @@ function VariantImage({ image }) {
 export default function ProductDetailScreen({
   productId,
   onBack,
+  onStorePress,
+  onOpenChat,
   onReserve,
   onDeal,
   onMessageSeller,
@@ -32,8 +37,8 @@ export default function ProductDetailScreen({
   const [product, setProduct] = useState(null);
   const [store, setStore] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [reportVisible, setReportVisible] = useState(false);
   const [isLiked, setIsLiked] = useState(false);
-
   useEffect(() => {
     let isCurrent = true;
     setLoading(true);
@@ -94,14 +99,33 @@ export default function ProductDetailScreen({
     );
   }
 
-  const variants = product.variants || [];
+  function handleReportSubmit(reason) {
+    setReportVisible(false);
+    Alert.alert('Đã gửi báo cáo', `Cảm ơn bạn. Chúng tôi đã ghi nhận: "${reason}".`);
+  }
 
+  function handleOpenChat() {
+    if (!store?.id) {
+      return;
+    }
+    onOpenChat?.({ shopId: store.id, shopName: store.name });
+  }
+
+  const variants = product.variants || [];
   return (
     <View style={styles.screen}>
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
         <View style={styles.imageSection}>
           <Pressable onPress={onBack} style={styles.backBtn} accessibilityRole="button">
             <Text style={styles.backBtnText}>←</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => setReportVisible(true)}
+            style={styles.reportBtn}
+            accessibilityRole="button"
+            accessibilityLabel="Báo cáo sản phẩm"
+          >
+            <Text style={styles.reportBtnText}>⋯</Text>
           </Pressable>
           <View style={styles.imageBox}>
             {product.thumbnail ? (
@@ -198,13 +222,27 @@ export default function ProductDetailScreen({
           <Text style={styles.dealBtnText}>Deal giá</Text>
         </Pressable>
         <Pressable
-          style={({ pressed }) => [styles.actionBtn, styles.messageBtn, pressed && styles.pressed]}
-          onPress={() => onMessageSeller?.(product, store)}
+          style={({ pressed }) => [styles.chatButton, pressed && styles.pressed]}
+          onPress={() => {
+            handleOpenChat();
+            onMessageSeller?.(product, store);
+          }}
         >
-          <Text style={styles.messageBtnText}>Nhắn tin cho người bán</Text>
+          <Text style={styles.chatButtonText}>💬 Chat</Text>
         </Pressable>
+        {store ? (
+          <View style={styles.contactWrap}>
+            <ContactActions phone={store.phone} zalo={store.zalo} compact />
+          </View>
+        ) : null}
       </View>
-    </View>
+
+      <ReportSheet
+        visible={reportVisible}
+        title="Báo cáo sản phẩm"
+        onClose={() => setReportVisible(false)}
+        onSubmit={handleReportSubmit}
+      />    </View>
   );
 }
 
@@ -261,6 +299,29 @@ const styles = StyleSheet.create({
     fontSize: 20,
     color: '#0f172a',
     fontWeight: '700',
+  },
+  reportBtn: {
+    position: 'absolute',
+    top: 48,
+    right: 16,
+    zIndex: 10,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.9)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  reportBtnText: {
+    fontSize: 22,
+    color: '#0f172a',
+    fontWeight: '900',
+    lineHeight: 24,
   },
   imageBox: {
     height: 300,
@@ -431,6 +492,25 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.08,
     shadowRadius: 12,
     elevation: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  chatButton: {
+    minHeight: 44,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#0f766e',
+  },
+  chatButtonText: {
+    color: '#ffffff',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  contactWrap: {
+    flex: 1,
   },
   actionBtn: {
     borderRadius: 12,
