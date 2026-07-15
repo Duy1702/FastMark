@@ -1,10 +1,14 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import SellerOrdersScreen from '../seller/SellerOrdersScreen';
 import SellerOrderDetailScreen from '../seller/SellerOrderDetailScreen';
 
-export default function SellerOrdersTabScreen() {
+export default function SellerOrdersTabScreen({ onNavigationStateChange }) {
   const [selectedReservationId, setSelectedReservationId] = useState(null);
   const [ordersRefreshKey, setOrdersRefreshKey] = useState(0);
+
+  useEffect(() => {
+    onNavigationStateChange?.(Boolean(selectedReservationId));
+  }, [onNavigationStateChange, selectedReservationId]);
 
   if (selectedReservationId) {
     return (

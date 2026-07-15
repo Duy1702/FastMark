@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
-  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -16,6 +15,8 @@ import { getProductCategoriesOnBackend } from '../../api/productApi';
 import { formatDistance, hasValidLocation, normalizeExpoLocation } from '../../core/utils/geo';
 import { searchRegisteredShops } from '../../repository/searchShopRepository';
 import AddressSearchBar from '../map/AddressSearchBar';
+import AvatarBadge from '../shared/components/AvatarBadge';
+import { isRemoteAvatarUrl } from '../../core/utils/avatarInitial';
 
 const DISTANCE_OPTIONS = [
   { value: 500, label: '500 m' },
@@ -333,13 +334,12 @@ export default function SearchScreen({ onSelectLocation, onOpenStore }) {
         style={({ pressed }) => [styles.resultCard, pressed && styles.resultCardPressed]}
         onPress={() => onOpenStore?.(item.id)}
       >
-        {item.image_url ? (
-          <Image source={{ uri: item.image_url }} style={styles.resultThumb} />
-        ) : (
-          <View style={styles.resultThumbPlaceholder}>
-            <Text style={styles.resultThumbEmoji}>🏪</Text>
-          </View>
-        )}
+        <AvatarBadge
+          name={item.shop_name || item.name || 'S'}
+          uri={isRemoteAvatarUrl(item.image_url) ? item.image_url : ''}
+          size={56}
+          style={styles.resultThumb}
+        />
 
         <View style={styles.resultBody}>
           <View style={styles.resultTopRow}>
@@ -605,19 +605,8 @@ const styles = StyleSheet.create({
   resultThumb: {
     width: 56,
     height: 56,
-    borderRadius: 12,
-    backgroundColor: '#e2e8f0',
-  },
-  resultThumbPlaceholder: {
-    width: 56,
-    height: 56,
-    borderRadius: 12,
-    backgroundColor: '#ccfbf1',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  resultThumbEmoji: {
-    fontSize: 24,
+    borderRadius: 28,
+    flexShrink: 0,
   },
   resultBody: {
     flex: 1,

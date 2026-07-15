@@ -86,7 +86,6 @@ export async function getShopCategoriesOnBackend() {
     id: normalizeCategoryId(category.id || category._id),
     name: category.name || category.categoryName || '',
     categoryName: category.name || category.categoryName || '',
-    icon: category.icon || '',
     description: category.description || '',
   })).filter((category) => category.id && category.categoryName);
 }

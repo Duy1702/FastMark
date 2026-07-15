@@ -30,6 +30,7 @@ import ReportSheet from '../shared/components/ReportSheet';
 import OutOfStockOverlay from '../shared/components/OutOfStockOverlay';
 import CircularBackButton from '../shared/components/CircularBackButton';
 import { storeLogger as log } from '../../core/utils/logger';
+import { RESERVATION_TAB } from '../../constants/sellerOrders';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const VARIANT_COLUMNS = 3;
@@ -54,6 +55,7 @@ export default function ProductDetailScreen({
   onReserve,
   onDeal,
   onMessageSeller,
+  onOrderSuccess,
 }) {
   const insets = useScreenInsets();
   const galleryRef = useRef(null);
@@ -558,7 +560,10 @@ export default function ProductDetailScreen({
         store={store}
         preselectedVariantId={actionVariantId}
         onClose={() => setDealModalVisible(false)}
-        onSuccess={() => setDealModalVisible(false)}
+        onSuccess={() => {
+          setDealModalVisible(false);
+          onOrderSuccess?.(RESERVATION_TAB.PENDING_PRICE);
+        }}
       />
       <ReservationModal
         visible={reserveModalVisible}
@@ -566,7 +571,10 @@ export default function ProductDetailScreen({
         store={store}
         preselectedVariantId={actionVariantId}
         onClose={() => setReserveModalVisible(false)}
-        onSuccess={() => setReserveModalVisible(false)}
+        onSuccess={() => {
+          setReserveModalVisible(false);
+          onOrderSuccess?.(RESERVATION_TAB.HOLDING);
+        }}
       />
     </View>
   );

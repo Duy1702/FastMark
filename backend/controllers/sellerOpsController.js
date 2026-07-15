@@ -27,6 +27,28 @@ exports.updateShopSettings = async (req, res) => {
   });
 };
 
+exports.uploadShopAvatar = async (req, res) => {
+  const imageBase64 = pickBodyValue(req.body, ["imageBase64", "base64"]);
+  const mimeType = pickBodyValue(req.body, ["mimeType", "contentType"]) || "image/jpeg";
+
+  if (!imageBase64) {
+    return fail(res, {
+      status: 400,
+      message: "Thiếu file ảnh gian hàng.",
+    });
+  }
+
+  const result = await shopSettingsService.uploadShopAvatar(req.currentUser, {
+    imageBase64,
+    mimeType,
+  });
+
+  return success(res, {
+    message: "Cập nhật ảnh gian hàng thành công.",
+    data: result,
+  });
+};
+
 exports.listOrders = async (req, res) => {
   const tab = req.query.tab || "holding";
 
@@ -167,7 +189,10 @@ exports.deleteMessage = async (req, res) => {
 
   return success(res, {
     message: "Đã gỡ tin nhắn.",
-    data: { message },
+    data: {
+      message,
+      lastMessage: message.conversationLastMessage || "",
+    },
   });
 };
 

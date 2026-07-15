@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
-import { createLeafletHtml, MAP_EVENT_SOURCE } from '../../../core/utils/leafletHtml';
+import { createLeafletHtml, LEAFLET_HTML_REVISION, MAP_EVENT_SOURCE } from '../../../core/utils/leafletHtml';
 import { hasValidLocation } from '../../../core/utils/geo';
 import { createLogger } from '../../../core/utils/logger';
 
@@ -29,8 +29,15 @@ export default function LeafletMap({
 
   const html = useMemo(
     () => createLeafletHtml({ currentLocation: initialLocationRef.current }),
-    []
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [LEAFLET_HTML_REVISION]
   );
+
+  useEffect(() => {
+    setReady(false);
+    hasCenteredRef.current = false;
+    pendingCommandsRef.current = [];
+  }, [LEAFLET_HTML_REVISION]);
 
   function sendCommand(command) {
     if (!ready || !iframeRef.current?.contentWindow) {
@@ -139,6 +146,7 @@ export default function LeafletMap({
   return (
     <View style={styles.container}>
       {React.createElement('iframe', {
+        key: LEAFLET_HTML_REVISION,
         title: 'Fastmark map',
         ref: iframeRef,
         srcDoc: html,

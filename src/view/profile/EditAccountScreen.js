@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -15,6 +14,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { useDispatch, useSelector } from 'react-redux';
 
 import CircularBackButton from '../shared/components/CircularBackButton';
+import AvatarBadge from '../shared/components/AvatarBadge';
 
 import {
   selectAuthError,
@@ -232,7 +232,7 @@ export default function EditAccountScreen({ onBack }) {
         {section === 'profile' ? (
           <>
             <View style={styles.avatarSection}>
-              <AvatarPreview name={displayName} photoUrl={avatarUrl} size={96} />
+              <AvatarBadge name={displayName} uri={avatarUrl} size={96} />
               <Pressable
                 accessibilityRole="button"
                 disabled={isUploadingAvatar}
@@ -317,41 +317,6 @@ export default function EditAccountScreen({ onBack }) {
         {successMessage ? <Text style={styles.successText}>{successMessage}</Text> : null}
       </ScrollView>
     </KeyboardAvoidingView>
-  );
-}
-
-function AvatarPreview({ name, photoUrl, size }) {
-  const initial = (name || 'U').charAt(0).toUpperCase();
-
-  if (photoUrl) {
-    return (
-      <Image
-        source={{ uri: photoUrl }}
-        style={[
-          styles.avatarImage,
-          {
-            width: size,
-            height: size,
-            borderRadius: size / 2,
-          },
-        ]}
-      />
-    );
-  }
-
-  return (
-    <View
-      style={[
-        styles.avatarCircle,
-        {
-          width: size,
-          height: size,
-          borderRadius: size / 2,
-        },
-      ]}
-    >
-      <Text style={[styles.avatarText, { fontSize: size * 0.42 }]}>{initial}</Text>
-    </View>
   );
 }
 

@@ -29,6 +29,7 @@ import SellerRegistrationScreen from '../seller/SellerRegistrationScreen';
 import SellerVerificationStatusScreen from '../seller/SellerVerificationStatusScreen';
 import SellerProductDetailScreen from '../seller/SellerProductDetailScreen';
 import SellerShopSettingsScreen from '../seller/SellerShopSettingsScreen';
+import SellerReviewsManageScreen from '../seller/SellerReviewsManageScreen';
 import SellerOrdersScreen from '../seller/SellerOrdersScreen';
 import SellerOrderDetailScreen from '../seller/SellerOrderDetailScreen';
 import SellerStatsScreen from '../seller/SellerStatsScreen';
@@ -36,6 +37,7 @@ import BuyerOrdersScreen from '../buyer/BuyerOrdersScreen';
 import StoreDetailScreen from '../store/StoreDetailScreen';
 import { getSellerRegistrationStep } from '../seller/sellerRegistrationFlow';
 import { SELLER_VERIFICATION_STATUS } from '../../constants/sellerVerification';
+import { RESERVATION_TAB } from '../../constants/sellerOrders';
 
 export default function ProfilePanel({
   profileMode = 'buyer',
@@ -43,7 +45,7 @@ export default function ProfilePanel({
   onNavigateToStore,
   onOpenInbox,
   onNavigatePickup,
-  openBuyerOrdersRequest = 0,
+  openBuyerOrdersRequest = null,
   sellerRegisterRequest = 0,
   isProfileVisible = false,
   productDetailId = null,
@@ -69,6 +71,8 @@ export default function ProfilePanel({
   const [phoneChangeReturn, setPhoneChangeReturn] = useState(null);
   const [shopContactRefreshKey, setShopContactRefreshKey] = useState(0);
   const [shopSettings, setShopSettings] = useState(null);
+  const [buyerOrdersTab, setBuyerOrdersTab] = useState(RESERVATION_TAB.HOLDING);
+  const [buyerOrdersTabKey, setBuyerOrdersTabKey] = useState(0);
 
   const loadShopSettings = useCallback(async () => {
     if (!isProfileVisible || !isSeller) {
@@ -132,6 +136,16 @@ export default function ProfilePanel({
     if (!openBuyerOrdersRequest || profileMode !== 'buyer') {
       return;
     }
+    const tab =
+      typeof openBuyerOrdersRequest === 'object' && openBuyerOrdersRequest.tab
+        ? openBuyerOrdersRequest.tab
+        : RESERVATION_TAB.HOLDING;
+    const key =
+      typeof openBuyerOrdersRequest === 'object' && openBuyerOrdersRequest.at
+        ? openBuyerOrdersRequest.at
+        : openBuyerOrdersRequest;
+    setBuyerOrdersTab(tab);
+    setBuyerOrdersTabKey(key);
     setProfileNav('buyer-orders');
   }, [openBuyerOrdersRequest, profileMode]);
 
@@ -286,6 +300,10 @@ export default function ProfilePanel({
     );
   }
 
+  if (profileNav === 'seller-reviews') {
+    return <SellerReviewsManageScreen onBack={() => setProfileNav(null)} />;
+  }
+
   if (profileNav === 'seller-orders') {
     return (
       <SellerOrdersScreen
@@ -366,6 +384,8 @@ export default function ProfilePanel({
       <BuyerOrdersScreen
         onBack={() => setProfileNav(null)}
         onNavigatePickup={onNavigatePickup}
+        initialTab={buyerOrdersTab}
+        tabRequestKey={buyerOrdersTabKey}
       />
     );
   }
@@ -430,8 +450,13 @@ export default function ProfilePanel({
         onOpenActivity={() => setProfileNav('my-activity')}
         onOpenNotificationSettings={() => setProfileNav('notification-settings')}
         onOpenInbox={onOpenInbox}
-        onOpenBuyerOrders={() => setProfileNav('buyer-orders')}
+        onOpenBuyerOrders={() => {
+          setBuyerOrdersTab(RESERVATION_TAB.HOLDING);
+          setBuyerOrdersTabKey(Date.now());
+          setProfileNav('buyer-orders');
+        }}
         onOpenSellerShopSettings={() => setProfileNav('seller-shop-settings')}
+        onOpenSellerReviews={() => setProfileNav('seller-reviews')}
         onOpenSellerOrders={() => setProfileNav('seller-orders')}
         onOpenSellerStats={() => setProfileNav('seller-stats')}
         onOpenBuyerView={openBuyerPreview}

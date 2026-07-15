@@ -2,7 +2,6 @@ const ShopCategory = require("../models/ShopCategory");
 const ShopProfile = require("../models/ShopProfile");
 const SellerVerification = require("../models/SellerVerification");
 const { normalizeCategoryId, isValidCategoryId } = require("../utils/categoryId");
-const { uploadImageToSupabase, resolveFileExtension } = require("./uploadService");
 
 const CATEGORY_SORT = { CreatedAt: 1, _id: 1 };
 
@@ -22,7 +21,6 @@ function toPublicCategory(category) {
     name: pickString(category.name),
     categoryName: pickString(category.name),
     description: category.description || "",
-    icon: category.icon || "",
     isDeleted: Number(category.IsDeleted) === 0 ? 0 : 1,
     IsDeleted: Number(category.IsDeleted) === 0 ? 0 : 1,
     createdAt: category.CreatedAt,
@@ -49,7 +47,7 @@ async function assertShopCategoryExists(categoryId) {
   }
 
   const category = await ShopCategory.findById(id).lean();
-  if (!category || (Number(category.IsDeleted) === 0)) {
+  if (!category || Number(category.IsDeleted) === 0) {
     throw createServiceError("Danh mục cửa hàng không hợp lệ hoặc đã bị ẩn.");
   }
 
@@ -63,21 +61,15 @@ async function getShopCategoryNameMap(categoryIds = []) {
   }
 
   const categories = await ShopCategory.find({ _id: { $in: uniqueIds } })
-    .select("name icon")
+    .select("name")
     .lean();
 
   return new Map(
-    categories.map((category) => [
-      String(category._id),
-      {
-        name: pickString(category.name),
-        icon: pickString(category.icon),
-      },
-    ])
+    categories.map((category) => [String(category._id), pickString(category.name)])
   );
 }
 
-async function createCategory({ name, description, icon, isDeleted }) {
+async function createCategory({ name, description, isDeleted }) {
   const categoryName = pickString(name);
   if (!categoryName) {
     throw createServiceError("Vui lòng nhập tên danh mục.");
@@ -91,14 +83,13 @@ async function createCategory({ name, description, icon, isDeleted }) {
   const category = await ShopCategory.create({
     name: categoryName,
     description: pickString(description),
-    icon: pickString(icon),
     IsDeleted: Number(isDeleted) === 0 ? 0 : 1,
   });
 
   return toPublicCategory(category);
 }
 
-async function updateCategory(categoryId, { name, description, icon, isDeleted }) {
+async function updateCategory(categoryId, { name, description, isDeleted }) {
   const category = await ShopCategory.findById(categoryId);
   if (!category) {
     throw createServiceError("Không tìm thấy danh mục.", 404);
@@ -119,14 +110,14 @@ async function updateCategory(categoryId, { name, description, icon, isDeleted }
 
   category.name = categoryName;
   category.description = pickString(description);
-  category.icon = pickString(icon);
   if (isDeleted !== undefined) {
     category.IsDeleted = Number(isDeleted) === 0 ? 0 : 1;
   }
   category.UpdatedAt = new Date();
   await category.save();
+  await ShopCategory.updateOne({ _id: category._id }, { $unset: { icon: "" } });
 
-  return toPublicCategory(category);
+  return toPublicCategory(await ShopCategory.findById(category._id));
 }
 
 async function deleteCategory(categoryId) {
@@ -151,25 +142,6 @@ async function deleteCategory(categoryId) {
   return { id: categoryId };
 }
 
-async function uploadCategoryIcon({ file, categoryId }) {
-  if (!file?.buffer?.length) {
-    throw createServiceError("Vui lòng chọn ảnh icon.", 400);
-  }
-
-  const extension = resolveFileExtension(file.mimetype, file.originalname);
-  const folder = categoryId ? `categories/shops/${categoryId}` : "categories/shops/temp";
-  const fileName = `icon-${Date.now()}.${extension}`;
-
-  const uploaded = await uploadImageToSupabase({
-    buffer: file.buffer,
-    mimeType: file.mimetype,
-    folder,
-    fileName,
-  });
-
-  return { icon: uploaded.publicUrl };
-}
-
 module.exports = {
   listCategories,
   assertShopCategoryExists,
@@ -177,5 +149,4 @@ module.exports = {
   createCategory,
   updateCategory,
   deleteCategory,
-  uploadCategoryIcon,
 };

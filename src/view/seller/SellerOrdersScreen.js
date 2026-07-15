@@ -167,7 +167,7 @@ export default function SellerOrdersScreen({ onBack, onOpenReservation, onRefres
         ) : (
           <CircularBackButton onPress={onBack} variant="light" />
         )}
-        <Text style={styles.title}>{embedded ? 'Đơn hàng' : 'Quản lý đơn hàng'}</Text>
+        <Text style={styles.title}>Quản lý đơn hàng</Text>
         <View style={styles.topBarSpacer} />
       </View>
 

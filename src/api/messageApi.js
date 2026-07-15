@@ -115,7 +115,10 @@ export async function deleteBuyerMessageOnBackend(conversationId, messageId) {
       AUTH_TIMEOUT_MS
     );
     const payload = await parseApiResponse(response);
-    return payload.data?.message;
+    return {
+      message: payload.data?.message,
+      lastMessage: payload.data?.lastMessage || payload.data?.message?.conversationLastMessage || '',
+    };
   });
 }
 

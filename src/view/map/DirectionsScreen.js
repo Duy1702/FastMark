@@ -26,9 +26,6 @@ export default function DirectionsScreen({
 
   const destination = session?.destination ?? null;
   const storeAvatar = String(session?.storeAvatar || '').trim();
-  const categoryIcon = String(
-    destination?.category_icon || session?.categoryIcon || ''
-  ).trim();
 
   const destinationWithIcon = useMemo(() => {
     if (!destination) {
@@ -36,10 +33,10 @@ export default function DirectionsScreen({
     }
     return {
       ...destination,
-      category_icon: categoryIcon,
+      image_url: storeAvatar || destination.image_url || '',
       type: 'shop',
     };
-  }, [destination, categoryIcon]);
+  }, [destination, storeAvatar]);
 
   useEffect(() => {
     mountedRef.current = true;

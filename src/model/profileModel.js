@@ -151,6 +151,10 @@ export function mergeProfile(authUser, baseProfile, updates = {}) {
       patch.shopDescription !== undefined
         ? cleanText(patch.shopDescription)
         : baseProfile?.shopDescription || '',
+    shopAvatar:
+      patch.shopAvatar !== undefined
+        ? cleanText(patch.shopAvatar)
+        : baseProfile?.shopAvatar || '',
     openTime:
       patch.openTime !== undefined
         ? cleanText(patch.openTime)
@@ -178,6 +182,7 @@ export function mapShopSettingsToProfilePatch(shop) {
     categoryId: cleanText(shop.categoryId),
     categoryName: cleanText(shop.categoryName),
     shopDescription: cleanText(shop.description || shop.shopDescription),
+    shopAvatar: cleanText(shop.avatar || shop.shopAvatar),
     shopAddress: cleanText(shop.address),
     shopSystemAddress: cleanText(shop.systemAddress),
     shopPhone: cleanText(shop.shopPhone),
@@ -234,6 +239,8 @@ export function mapBackendUserToProfile(backendUser, authUser) {
         : backendUser?.description !== undefined
           ? cleanText(backendUser.description)
           : undefined,
+    shopAvatar:
+      backendUser?.shopAvatar !== undefined ? cleanText(backendUser.shopAvatar) : undefined,
     openTime: backendUser?.openTime || '',
     closeTime: backendUser?.closeTime || '',
     isOpen: backendUser?.isOpen ?? 1,

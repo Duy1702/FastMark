@@ -6,6 +6,7 @@ const ShopProfileSchema = new mongoose.Schema({
   externalRestaurantId: { type: String, default: "", index: true, sparse: true },
 
   description: String,
+  avatar: { type: String, default: "" },
   address: String,
   DiaChiHeThong: String,
 
