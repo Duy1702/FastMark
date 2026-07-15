@@ -337,9 +337,11 @@ function mapBuyerPublicInfo(buyer) {
   return {
     id: buyer._id,
     fullName: buyer.FullName || "",
+    name: buyer.FullName || "",
     userName: buyer.UserName || "",
     avatar: buyer.Avatar || "",
-    phone: buyer.Phone || "",
+    followersCount: Number(buyer.FollowersCount) || 0,
+    followingCount: Number(buyer.FollowingCount) || 0,
     ...mapPresenceFields(buyer),
   };
 }
@@ -354,18 +356,30 @@ async function getShopPublicInfo(shop) {
     "Gian hàng";
 
   const shopPresence = mapPresenceFields(shop);
+  const sellerPresence = mapPresenceFields(seller || {});
 
   return {
     id: shop._id,
     name,
     shopName: shop.shopName || name,
     shopUsername: shop.shopUsername || "",
-    avatar: seller?.Avatar || "",
+    // Shop branding only — never borrow User.Avatar.
+    avatar: shop.avatar || "",
+    // Personal seller avatar for “Tài khoản” view.
+    accountAvatar: seller?.Avatar || "",
     phone: shop.phone || seller?.Phone || "",
     description: shop.description || "",
     isOnline: shopPresence.isOnline,
     lastActiveAt: shopPresence.lastActiveAt,
     activityLabel: shopPresence.activityLabel,
+    // Seller personal account fields (used by chat "Tài khoản" view).
+    fullName: seller?.FullName || "",
+    userName: seller?.UserName || "",
+    followersCount: Number(seller?.FollowersCount) || 0,
+    followingCount: Number(seller?.FollowingCount) || 0,
+    accountIsOnline: sellerPresence.isOnline,
+    accountLastActiveAt: sellerPresence.lastActiveAt,
+    accountActivityLabel: sellerPresence.activityLabel,
   };
 }
 
@@ -666,6 +680,19 @@ async function sendBuyerMessage(user, conversationId, payload) {
   return mapMessageToClient(message, viewer, images.get(String(message._id)) || []);
 }
 
+function syncConversationPreviewAfterDelete(conversation, deletedMessage, actorName) {
+  const now = new Date();
+  const lastMessage = `${pickString(actorName) || "Ai đó"} đã gỡ 1 tin nhắn`;
+
+  return Conversation.findByIdAndUpdate(conversation._id, {
+    $set: {
+      lastMessage,
+      lastMessageAt: deletedMessage.DeletedAt || now,
+      UpdatedAt: now,
+    },
+  }).then(() => lastMessage);
+}
+
 async function deleteMessage(user, conversationId, messageId, { asSeller = false } = {}) {
   const { shop, conversation } = asSeller
     ? await getOwnedConversation(user, conversationId)
@@ -678,7 +705,7 @@ async function deleteMessage(user, conversationId, messageId, { asSeller = false
 
   const message = await Message.findOne({
     _id: messageId,
-    conversationId: conversation._id,
+    conversationId: { $in: [conversation._id, String(conversation._id)] },
     ...ownerFilter,
     DeletedAt: null,
   });
@@ -687,18 +714,36 @@ async function deleteMessage(user, conversationId, messageId, { asSeller = false
     throw createServiceError("Không tìm thấy tin nhắn để gỡ.", 404);
   }
 
-  message.DeletedAt = new Date();
-  message.UpdatedAt = new Date();
+  const now = new Date();
+  message.DeletedAt = now;
+  message.UpdatedAt = now;
   message.content = "";
   await message.save();
+
+  const actorName = asSeller
+    ? pickString(shop.shopName) ||
+      pickString(user.FullName) ||
+      pickString(user.UserName) ||
+      "Người bán"
+    : pickString(user.FullName) || pickString(user.UserName) || "Người mua";
+
+  const conversationLastMessage = await syncConversationPreviewAfterDelete(
+    conversation,
+    message,
+    actorName
+  );
 
   const clientMessage = mapMessageToClient(message, viewer);
   emitConversationEvent(String(conversation._id), "message:deleted", {
     conversationId: String(conversation._id),
     message: mapMessageToBroadcast(message),
+    lastMessage: conversationLastMessage,
   });
 
-  return clientMessage;
+  return {
+    ...clientMessage,
+    conversationLastMessage,
+  };
 }
 
 async function getSellerConversationPeer(user, conversationId) {

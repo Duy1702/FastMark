@@ -86,7 +86,10 @@ exports.deleteMessage = async (req, res) => {
 
   return success(res, {
     message: "Đã gỡ tin nhắn.",
-    data: { message },
+    data: {
+      message,
+      lastMessage: message.conversationLastMessage || "",
+    },
   });
 };
 

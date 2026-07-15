@@ -54,7 +54,7 @@ function capitalizeFirstLetter(value = '') {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
-export default function NotificationsScreen() {
+export default function NotificationsScreen({ onNavigationStateChange }) {
   const [notifications, setNotifications] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState('');
@@ -79,11 +79,30 @@ export default function NotificationsScreen() {
     loadNotifications();
   }, [loadNotifications]);
 
+  useEffect(() => {
+    onNavigationStateChange?.(Boolean(selectedNotification));
+  }, [onNavigationStateChange, selectedNotification]);
+
   if (selectedNotification) {
     return (
       <NotificationDetailScreen
         notification={selectedNotification}
-        onBack={() => setSelectedNotification(null)}
+        onBack={() => {
+          setSelectedNotification(null);
+          loadNotifications();
+        }}
+        onMarkedRead={(id) => {
+          setNotifications((current) =>
+            current.map((item) =>
+              String(item.id) === String(id) ? { ...item, isRead: true } : item
+            )
+          );
+          setSelectedNotification((current) =>
+            current && String(current.id) === String(id)
+              ? { ...current, isRead: true }
+              : current
+          );
+        }}
       />
     );
   }

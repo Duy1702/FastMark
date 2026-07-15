@@ -11,4 +11,16 @@ router.get(
   asyncHandler(notificationController.listMyNotifications)
 );
 
+router.post(
+  "/read-all",
+  verifyFirebaseToken,
+  asyncHandler(notificationController.markAllAsRead)
+);
+
+router.post(
+  "/:id/read",
+  verifyFirebaseToken,
+  asyncHandler(notificationController.markAsRead)
+);
+
 module.exports = router;

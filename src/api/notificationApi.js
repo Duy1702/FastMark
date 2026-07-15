@@ -25,3 +25,46 @@ export async function getMyNotificationsOnBackend() {
     return payload.data?.items || [];
   });
 }
+
+export async function markNotificationReadOnBackend(notificationId) {
+  const id = encodeURIComponent(String(notificationId || '').trim());
+  if (!id) {
+    throw new Error('Thiếu mã thông báo.');
+  }
+
+  return callWithAuthToken(async (idToken) => {
+    const response = await apiRequest(
+      API_ENDPOINTS.notificationRead(id),
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${idToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: '{}',
+      },
+      AUTH_TIMEOUT_MS
+    );
+    const payload = await parseApiResponse(response);
+    return payload.data?.notification;
+  });
+}
+
+export async function markAllNotificationsReadOnBackend() {
+  return callWithAuthToken(async (idToken) => {
+    const response = await apiRequest(
+      API_ENDPOINTS.notificationsReadAll,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${idToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: '{}',
+      },
+      AUTH_TIMEOUT_MS
+    );
+    const payload = await parseApiResponse(response);
+    return payload.data;
+  });
+}

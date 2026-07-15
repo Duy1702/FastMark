@@ -69,7 +69,46 @@ async function listNotificationsForUser(userId, { page = 1, limit = 50 } = {}) {
   };
 }
 
+async function markNotificationAsRead(userId, notificationId) {
+  if (!userId || !notificationId) {
+    const error = new Error("Thiếu thông báo.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const now = new Date();
+  const notification = await Notification.findOneAndUpdate(
+    { _id: notificationId, userId },
+    { $set: { isRead: 1, UpdatedAt: now } },
+    { new: true }
+  );
+
+  if (!notification) {
+    const error = new Error("Không tìm thấy thông báo.");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  return toClientNotification(notification);
+}
+
+async function markAllNotificationsAsRead(userId) {
+  if (!userId) {
+    return { updated: 0 };
+  }
+
+  const now = new Date();
+  const result = await Notification.updateMany(
+    { userId, isRead: { $ne: 1 } },
+    { $set: { isRead: 1, UpdatedAt: now } }
+  );
+
+  return { updated: result.modifiedCount || 0 };
+}
+
 module.exports = {
   createNotification,
   listNotificationsForUser,
+  markNotificationAsRead,
+  markAllNotificationsAsRead,
 };

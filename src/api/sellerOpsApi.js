@@ -44,6 +44,27 @@ export async function updateSellerShopSettingsOnBackend({ idToken, payload }) {
   return parsed.data?.shop;
 }
 
+export async function uploadSellerShopAvatarOnBackend({ idToken, imageBase64, mimeType = 'image/jpeg' }) {
+  if (!imageBase64) {
+    throw new Error('Thiếu dữ liệu ảnh để upload.');
+  }
+
+  const response = await apiRequest(
+    API_ENDPOINTS.sellerShopAvatar,
+    {
+      method: 'POST',
+      headers: await authHeaders(idToken),
+      body: JSON.stringify({
+        imageBase64,
+        mimeType,
+      }),
+    },
+    AUTH_TIMEOUT_MS
+  );
+  const parsed = await parseApiResponse(response);
+  return parsed.data;
+}
+
 export async function getSellerOrdersOnBackend({ idToken, tab }) {
   const response = await apiRequest(
     `${API_ENDPOINTS.sellerOrders}?tab=${encodeURIComponent(tab)}`,
@@ -198,7 +219,10 @@ export async function deleteSellerMessageOnBackend(idToken, conversationId, mess
     AUTH_TIMEOUT_MS
   );
   const payload = await parseApiResponse(response);
-  return payload.data?.message;
+  return {
+    message: payload.data?.message,
+    lastMessage: payload.data?.lastMessage || payload.data?.message?.conversationLastMessage || '',
+  };
 }
 
 export async function getSellerConversationPeerOnBackend(idToken, conversationId) {

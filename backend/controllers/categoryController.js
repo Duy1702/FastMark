@@ -77,14 +77,6 @@ exports.deleteShopCategory = async (req, res) => {
   return success(res, { message: "Xóa danh mục cửa hàng thành công." });
 };
 
-exports.uploadShopCategoryIcon = async (req, res) => {
-  const uploaded = await categoryService.uploadShopCategoryIcon({
-    file: req.file,
-    categoryId: req.params.id,
-  });
-  return success(res, { data: uploaded });
-};
-
 // Legacy single-category handlers
 exports.listCategories = exports.listProductCategories;
 exports.createCategory = exports.createProductCategory;

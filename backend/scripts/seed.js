@@ -15,13 +15,13 @@ const PRODUCT_CATEGORIES = [
 ];
 
 const SHOP_CATEGORIES = [
-  { name: 'Quán ăn', icon: '🍜' },
-  { name: 'Cà phê', icon: '☕' },
-  { name: 'Trà sữa', icon: '🧋' },
-  { name: 'Ăn vặt', icon: '🍿' },
-  { name: 'Tạp hóa', icon: '🏪' },
-  { name: 'Thời trang', icon: '👗' },
-  { name: 'Khác', icon: '🛒' },
+  'Quán ăn',
+  'Cà phê',
+  'Trà sữa',
+  'Ăn vặt',
+  'Tạp hóa',
+  'Thời trang',
+  'Khác',
 ];
 
 async function seedProductCategories() {
@@ -44,16 +44,16 @@ async function seedProductCategories() {
 }
 
 async function seedShopCategories() {
-  for (const row of SHOP_CATEGORIES) {
+  for (const name of SHOP_CATEGORIES) {
     await ShopCategory.findOneAndUpdate(
-      { name: row.name },
+      { name },
       {
         $set: {
-          name: row.name,
-          icon: row.icon,
+          name,
           IsDeleted: 1,
           UpdatedAt: new Date(),
         },
+        $unset: { icon: "" },
         $setOnInsert: { CreatedAt: new Date() },
       },
       { upsert: true, new: true }

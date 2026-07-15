@@ -129,7 +129,7 @@ function ProductCard({ product, isLiked, onToggleLike, onPress, compact = false 
   );
 }
 
-export default function ProductsScreen({ onNavigationStateChange }) {
+export default function ProductsScreen({ onNavigationStateChange, onOpenBuyerOrders }) {
   const insets = useScreenInsets();
   const scrollRef = useRef(null);
   const searchTimerRef = useRef(null);
@@ -340,6 +340,10 @@ export default function ProductsScreen({ onNavigationStateChange }) {
       <ProductDetailScreen
         productId={selectedProductId}
         onBack={() => setSelectedProductId(null)}
+        onOrderSuccess={(tab) => {
+          setSelectedProductId(null);
+          onOpenBuyerOrders?.(tab);
+        }}
       />
     );
   }

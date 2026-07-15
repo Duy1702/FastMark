@@ -51,6 +51,12 @@ router.post(
 
 router.get("/shop", verifyFirebaseToken, requireSeller, asyncHandler(sellerOpsController.getShopSettings));
 router.put("/shop", verifyFirebaseToken, requireSeller, asyncHandler(sellerOpsController.updateShopSettings));
+router.post(
+  "/shop/avatar",
+  verifyFirebaseToken,
+  requireSeller,
+  asyncHandler(sellerOpsController.uploadShopAvatar)
+);
 
 router.get("/orders", verifyFirebaseToken, requireSeller, asyncHandler(sellerOpsController.listOrders));
 router.get(

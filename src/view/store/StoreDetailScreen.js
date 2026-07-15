@@ -28,6 +28,7 @@ import { useScreenInsets } from '../../hooks/useScreenInsets';
 import { formatPriceRange } from '../../core/utils/productFormat';
 import { getProductImageOverlayLabel } from '../../core/utils/productAvailability';
 import { formatDistance, calculateDistanceMeters, hasValidLocation } from '../../core/utils/geo';
+import { getAvatarInitial } from '../../core/utils/avatarInitial';
 import { storeLogger as log } from '../../core/utils/logger';
 import CircularBackButton from '../shared/components/CircularBackButton';
 import FollowConnectionsScreen from '../profile/FollowConnectionsScreen';
@@ -311,6 +312,8 @@ export default function StoreDetailScreen({
   const username = store.shop_username ? `@${store.shop_username}` : '';
   const hoursText = formatHours(store.open_time, store.close_time);
   const coverImage = store.cover_image_url || store.image_url;
+  const shopTitle = store.shop_name || store.name || 'Shop';
+  const shopInitial = getAvatarInitial(shopTitle);
 
   async function handleReportSubmit(reason) {
     setReportVisible(false);
@@ -354,7 +357,6 @@ export default function StoreDetailScreen({
       storeName: store.shop_name || store.name,
       latitude,
       longitude,
-      categoryIcon: store.category_icon || store.categoryIcon || '',
       categoryId: store.category_id || store.categoryId || '',
       storeAvatar: store.image_url || store.cover_image_url || '',
     });
@@ -386,14 +388,14 @@ export default function StoreDetailScreen({
             {coverImage ? (
               <Image source={{ uri: coverImage }} style={styles.coverImage} />
             ) : (
-              <Text style={styles.coverEmoji}>🏪</Text>
+              <Text style={styles.coverInitial}>{shopInitial}</Text>
             )}
           </View>
 
           <View style={styles.headerInfo}>
             <View style={styles.shopNameRow}>
               <Text style={styles.shopName} numberOfLines={2}>
-                {store.shop_name || store.name}
+                {shopTitle}
               </Text>
               <Pressable
                 onPress={() => setIsFollowing((prev) => !prev)}
@@ -672,8 +674,10 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
-  coverEmoji: {
-    fontSize: 64,
+  coverInitial: {
+    fontSize: 72,
+    fontWeight: '800',
+    color: '#ffffff',
   },
   headerInfo: {
     paddingHorizontal: 20,
@@ -682,7 +686,7 @@ const styles = StyleSheet.create({
   },
   shopNameRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     justifyContent: 'space-between',
     gap: 12,
     marginBottom: 4,

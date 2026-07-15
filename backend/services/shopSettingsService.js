@@ -1,6 +1,10 @@
 const ShopProfile = require("../models/ShopProfile");
 const User = require("../models/User");
 const { SHOP_OPEN } = require("../constants/shopStatus");
+const {
+  resolveFileExtension,
+  uploadImageToSupabase,
+} = require("./uploadService");
 
 function createServiceError(message, statusCode = 400) {
   const error = new Error(message);
@@ -28,6 +32,8 @@ function toPublicShopSettings(shop, user) {
     categoryName: shop.categoryId?.categoryName || "",
     description: shop.description || "",
     shopDescription: shop.description || "",
+    avatar: shop.avatar || "",
+    shopAvatar: shop.avatar || "",
     address: shop.address || "",
     systemAddress: shop.DiaChiHeThong || "",
     latitude: shop.latitude ?? null,
@@ -108,15 +114,62 @@ async function updateShopSettings(user, payload) {
     shop.isOpen = Number(payload.isOpen) === SHOP_OPEN.OPEN ? SHOP_OPEN.OPEN : SHOP_OPEN.CLOSED;
   }
 
+  if (payload.avatar !== undefined || payload.shopAvatar !== undefined) {
+    shop.avatar = pickString(payload.avatar ?? payload.shopAvatar);
+  }
+
   shop.UpdatedAt = new Date();
   await shop.save();
 
   return toPublicShopSettings(shop, freshUser);
 }
 
+async function uploadShopAvatar(user, { imageBase64, mimeType }) {
+  if (!imageBase64) {
+    throw createServiceError("Thiếu dữ liệu ảnh gian hàng.");
+  }
+
+  const normalizedBase64 = String(imageBase64).replace(
+    /^data:image\/[a-zA-Z0-9.+-]+;base64,/,
+    ""
+  );
+  const buffer = Buffer.from(normalizedBase64, "base64");
+
+  if (!buffer.length) {
+    throw createServiceError("Ảnh gian hàng không hợp lệ.");
+  }
+
+  const maxBytes = 5 * 1024 * 1024;
+  if (buffer.length > maxBytes) {
+    throw createServiceError("Ảnh không được lớn hơn 5MB.");
+  }
+
+  const shop = await getShopForSeller(user);
+  const extension = resolveFileExtension(mimeType || "image/jpeg");
+  const fileName = `${user.FirebaseUID}-shop-${Date.now()}.${extension}`;
+  const uploadResult = await uploadImageToSupabase({
+    buffer,
+    mimeType: mimeType || "image/jpeg",
+    folder: "shop-avatars",
+    fileName,
+  });
+
+  shop.avatar = uploadResult.publicUrl;
+  shop.UpdatedAt = new Date();
+  await shop.save();
+
+  const freshUser = await User.findById(user._id);
+  return {
+    shop: toPublicShopSettings(shop, freshUser),
+    avatarUrl: uploadResult.publicUrl,
+    storagePath: uploadResult.path,
+  };
+}
+
 module.exports = {
   getShopSettings,
   updateShopSettings,
+  uploadShopAvatar,
   getShopForSeller,
   toPublicShopSettings,
 };

@@ -8,12 +8,14 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import { useDispatch, useSelector } from 'react-redux';
 import { getCurrentUserIdToken } from '../../repository/authRepository';
 import {
   getSellerShopSettingsOnBackend,
   updateSellerShopSettingsOnBackend,
+  uploadSellerShopAvatarOnBackend,
 } from '../../api/sellerOpsApi';
 import { syncSellerAccess, applyShopSettingsToProfile } from '../../viewmodel/auth/authSlice';
 import { selectAuthProfile } from '../../viewmodel/auth/authSelectors';
@@ -21,17 +23,21 @@ import { reverseGeocodeLocation } from '../../viewmodel/map/mapViewModel';
 import ProfileSubScreen from '../profile/ProfileSubScreen';
 import SellerLocationPickerScreen from './SellerLocationPickerScreen';
 import TimePickerField from '../shared/components/TimePickerField';
+import AvatarBadge from '../shared/components/AvatarBadge';
 
 export default function SellerShopSettingsScreen({ onBack, onChangePhone, onSaved }) {
   const dispatch = useDispatch();
   const profile = useSelector(selectAuthProfile);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const [isLocating, setIsLocating] = useState(false);
   const [isPickingLocation, setIsPickingLocation] = useState(false);
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
 
+  const [shopAvatar, setShopAvatar] = useState('');
+  const [shopName, setShopName] = useState('');
   const [address, setAddress] = useState('');
   const [systemAddress, setSystemAddress] = useState('');
   const [latitude, setLatitude] = useState(null);
@@ -47,6 +53,8 @@ export default function SellerShopSettingsScreen({ onBack, onChangePhone, onSave
     try {
       const idToken = await getCurrentUserIdToken();
       const shop = await getSellerShopSettingsOnBackend(idToken);
+      setShopAvatar(shop.avatar || shop.shopAvatar || '');
+      setShopName(shop.shopName || '');
       setAddress(shop.address || '');
       setSystemAddress(shop.systemAddress || '');
       setLatitude(Number.isFinite(Number(shop.latitude)) ? Number(shop.latitude) : null);
@@ -55,12 +63,13 @@ export default function SellerShopSettingsScreen({ onBack, onChangePhone, onSave
       setOpenTime(shop.openTime || '');
       setCloseTime(shop.closeTime || '');
       setIsOpen(Number(shop.isOpen) === 1);
+      dispatch(applyShopSettingsToProfile(shop));
     } catch (loadError) {
       setError(loadError.message || 'Không tải được cài đặt cửa hàng.');
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [dispatch]);
 
   useEffect(() => {
     loadSettings();
@@ -99,6 +108,49 @@ export default function SellerShopSettingsScreen({ onBack, onChangePhone, onSave
     setSystemAddress(picked || '');
     setIsPickingLocation(false);
     setError('');
+  }
+
+  async function handleUploadShopAvatar() {
+    setError('');
+    setSuccessMessage('');
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        throw new Error('Cần quyền truy cập thư viện ảnh.');
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        quality: 0.7,
+        base64: true,
+      });
+
+      if (result.canceled || !result.assets?.[0]?.base64) {
+        return;
+      }
+
+      const asset = result.assets[0];
+      setIsUploadingAvatar(true);
+      const idToken = await getCurrentUserIdToken();
+      const uploadResult = await uploadSellerShopAvatarOnBackend({
+        idToken,
+        imageBase64: asset.base64,
+        mimeType: asset.mimeType || 'image/jpeg',
+      });
+      const shop = uploadResult?.shop;
+      if (shop) {
+        setShopAvatar(shop.avatar || shop.shopAvatar || '');
+        setShopName(shop.shopName || shopName);
+        dispatch(applyShopSettingsToProfile(shop));
+        onSaved?.(shop);
+      }
+      setSuccessMessage('Cập nhật ảnh gian hàng thành công.');
+    } catch (uploadError) {
+      setError(uploadError.message || 'Không upload được ảnh gian hàng.');
+    } finally {
+      setIsUploadingAvatar(false);
+    }
   }
 
   async function handleSave() {
@@ -168,11 +220,38 @@ export default function SellerShopSettingsScreen({ onBack, onChangePhone, onSave
 
   const displayPhone = profile?.shopPhone || profile?.phone || 'Chưa cập nhật';
   const phoneVerified = Boolean(profile?.sellerPhoneVerified);
+  const avatarLabelName = shopName || 'Shop';
 
   return (
     <ProfileSubScreen title="Cài đặt cửa hàng" onBack={onBack}>
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
       {successMessage ? <Text style={styles.successText}>{successMessage}</Text> : null}
+
+      <View style={styles.card}>
+        <Text style={styles.sectionTitle}>Ảnh gian hàng</Text>
+        <Text style={styles.hintText}>
+          Ảnh này chỉ dùng cho shop, tách biệt với ảnh đại diện tài khoản người mua.
+        </Text>
+        <View style={styles.avatarRow}>
+          <AvatarBadge name={avatarLabelName} uri={shopAvatar} size={72} />
+          <Pressable
+            disabled={isUploadingAvatar}
+            onPress={handleUploadShopAvatar}
+            style={({ pressed }) => [
+              styles.secondaryButton,
+              styles.avatarButton,
+              pressed && styles.buttonPressed,
+              isUploadingAvatar && styles.buttonDisabled,
+            ]}
+          >
+            {isUploadingAvatar ? (
+              <ActivityIndicator color="#0d7377" />
+            ) : (
+              <Text style={styles.secondaryButtonText}>Đổi ảnh gian hàng</Text>
+            )}
+          </Pressable>
+        </View>
+      </View>
 
       <View style={styles.card}>
         <Text style={styles.sectionTitle}>Số điện thoại</Text>
@@ -318,6 +397,8 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   sectionTitle: { fontSize: 16, fontWeight: '800', color: '#0f172a', marginBottom: 8 },
+  avatarRow: { flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 10 },
+  avatarButton: { flex: 1, marginTop: 0 },
   readOnlyValue: { fontSize: 16, fontWeight: '800', color: '#0f172a' },
   hintText: { fontSize: 13, color: '#64748b', lineHeight: 20, marginTop: 6 },
   verifiedText: { color: '#047857', fontWeight: '700', fontSize: 13, marginTop: 6 },

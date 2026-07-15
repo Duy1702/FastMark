@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { WebView } from 'react-native-webview';
 
-import { createLeafletHtml, MAP_EVENT_SOURCE } from '../../../core/utils/leafletHtml';
+import { createLeafletHtml, LEAFLET_HTML_REVISION, MAP_EVENT_SOURCE } from '../../../core/utils/leafletHtml';
 import { hasValidLocation } from '../../../core/utils/geo';
 import { createLogger } from '../../../core/utils/logger';
 
@@ -38,8 +38,16 @@ export default function LeafletMap({
 
   const html = useMemo(
     () => createLeafletHtml({ currentLocation: initialLocationRef.current }),
-    []
+    // Revision forces WebView HTML rebuild when marker styles change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [LEAFLET_HTML_REVISION]
   );
+
+  useEffect(() => {
+    setReady(false);
+    hasCenteredRef.current = false;
+    pendingCommandsRef.current = [];
+  }, [LEAFLET_HTML_REVISION]);
 
   function flushPendingCommands() {
     if (!ready || !webViewRef.current || pendingCommandsRef.current.length === 0) {
@@ -140,6 +148,7 @@ export default function LeafletMap({
   return (
     <View style={styles.container}>
       <WebView
+        key={LEAFLET_HTML_REVISION}
         ref={webViewRef}
         style={styles.webView}
         source={{ html }}

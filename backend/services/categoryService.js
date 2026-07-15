@@ -14,7 +14,6 @@ module.exports = {
   createShopCategory: shopCategoryService.createCategory,
   updateShopCategory: shopCategoryService.updateCategory,
   deleteShopCategory: shopCategoryService.deleteCategory,
-  uploadShopCategoryIcon: shopCategoryService.uploadCategoryIcon,
   assertShopCategoryExists: shopCategoryService.assertShopCategoryExists,
   getShopCategoryNameMap: shopCategoryService.getShopCategoryNameMap,
 

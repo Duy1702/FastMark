@@ -17,6 +17,7 @@ import { getMyNotificationsOnBackend } from '../../api/notificationApi';
 import { getSellerConversationsOnBackend } from '../../api/sellerOpsApi';
 import { getCurrentUserIdToken } from '../../repository/authRepository';
 import { selectIsSeller } from '../../viewmodel/auth/authSelectors';
+import AvatarBadge from '../shared/components/AvatarBadge';
 import ChatScreen from './ChatScreen';
 import NotificationDetailScreen from './NotificationDetailScreen';
 
@@ -25,6 +26,9 @@ const INBOX_TABS = [
   { key: 'notifications', label: 'Thông báo' },
 ];
 
+function ConversationAvatar({ uri, fallbackText }) {
+  return <AvatarBadge name={fallbackText} uri={uri} size={48} />;
+}
 function formatNotificationTime(value) {
   if (!value) {
     return '';
@@ -90,6 +94,7 @@ function hasRealMessage(conversation) {
 export default function InboxScreen({
   chatRequest = null,
   buyerView = false,
+  messagesOnly = false,
   onViewShop,
   onNavigationStateChange,
 }) {
@@ -157,16 +162,16 @@ export default function InboxScreen({
   }, []);
 
   useEffect(() => {
-    if (buyerView || activeTab === 'messages') {
+    if (buyerView || messagesOnly || activeTab === 'messages') {
       loadConversations();
     }
-  }, [activeTab, buyerView, loadConversations]);
+  }, [activeTab, buyerView, loadConversations, messagesOnly]);
 
   useEffect(() => {
-    if (activeTab === 'notifications') {
+    if (!messagesOnly && activeTab === 'notifications') {
       loadNotifications();
     }
-  }, [activeTab, loadNotifications]);
+  }, [activeTab, loadNotifications, messagesOnly]);
 
   useEffect(() => {
     if (!chatRequest?.shopId || showSellerInbox) {
@@ -193,7 +198,22 @@ export default function InboxScreen({
     return (
       <NotificationDetailScreen
         notification={selectedNotification}
-        onBack={() => setSelectedNotification(null)}
+        onBack={() => {
+          setSelectedNotification(null);
+          loadNotifications();
+        }}
+        onMarkedRead={(id) => {
+          setNotifications((current) =>
+            current.map((item) =>
+              String(item.id) === String(id) ? { ...item, isRead: true } : item
+            )
+          );
+          setSelectedNotification((current) =>
+            current && String(current.id) === String(id)
+              ? { ...current, isRead: true }
+              : current
+          );
+        }}
       />
     );
   }
@@ -207,9 +227,22 @@ export default function InboxScreen({
         shopName={selectedChat.shopName}
         buyerId={selectedChat.buyerId}
         buyerName={selectedChat.buyerName}
+        buyerAvatar={selectedChat.buyerAvatar}
         onBack={() => {
           setSelectedChat(null);
           loadConversations();
+        }}
+        onConversationPreviewChange={(conversationId, lastMessage) => {
+          if (!conversationId || !lastMessage) {
+            return;
+          }
+          setConversations((current) =>
+            current.map((item) =>
+              String(item.id) === String(conversationId)
+                ? { ...item, lastMessage, timeLabel: 'Vừa xong' }
+                : item
+            )
+          );
         }}
         onViewShop={onViewShop}
       />
@@ -219,7 +252,8 @@ export default function InboxScreen({
   const subtitle = showSellerInbox
     ? 'Tin nhắn khách hàng'
     : 'Tin nhắn với gian hàng';
-  const showInboxTabs = !buyerView;
+  const showInboxTabs = !buyerView && !messagesOnly;
+  const listTab = messagesOnly ? 'messages' : activeTab;
 
   return (
     <View style={styles.screen}>
@@ -245,7 +279,7 @@ export default function InboxScreen({
         </View>
       ) : null}
 
-      {(buyerView || activeTab === 'messages') && !showSellerInbox ? (
+      {(buyerView || listTab === 'messages') && !showSellerInbox ? (
         <View style={styles.searchWrap}>
           <Text style={styles.searchIcon}>🔍</Text>
           <TextInput
@@ -262,9 +296,11 @@ export default function InboxScreen({
       ) : null}
 
       {loadError ? <Text style={styles.errorText}>{loadError}</Text> : null}
-      {notificationError ? <Text style={styles.errorText}>{notificationError}</Text> : null}
+      {notificationError && listTab === 'notifications' ? (
+        <Text style={styles.errorText}>{notificationError}</Text>
+      ) : null}
 
-      {buyerView || activeTab === 'messages' ? (
+      {buyerView || listTab === 'messages' ? (
         isLoading ? (
           <View style={styles.centered}>
             <ActivityIndicator color="#0d7377" />
@@ -300,14 +336,14 @@ export default function InboxScreen({
                       buyerId: item.buyer?.id,
                       buyerName:
                         item.buyer?.fullName || item.buyer?.userName || 'Khách hàng',
+                      buyerAvatar: item.buyer?.avatar || '',
                     })
                   }
                 >
-                  <View style={styles.avatar}>
-                    <Text style={styles.avatarText}>
-                      {(item.buyer?.fullName || 'K').charAt(0)}
-                    </Text>
-                  </View>
+                  <ConversationAvatar
+                    uri={item.buyer?.avatar}
+                    fallbackText={item.buyer?.fullName || item.buyer?.userName || 'K'}
+                  />
                   <View style={styles.listBody}>
                     <View style={styles.listTopRow}>
                       <Text style={styles.listTitle} numberOfLines={1}>
@@ -315,7 +351,13 @@ export default function InboxScreen({
                       </Text>
                       <Text style={styles.listTime}>{item.timeLabel || ''}</Text>
                     </View>
-                    <Text style={styles.listPreview} numberOfLines={1}>
+                    <Text
+                      style={[
+                        styles.listPreview,
+                        /đã gỡ/.test(String(item.lastMessage || '')) && styles.listPreviewUnsent,
+                      ]}
+                      numberOfLines={1}
+                    >
                       {item.lastMessage || 'Chưa có tin nhắn'}
                     </Text>
                   </View>
@@ -332,9 +374,10 @@ export default function InboxScreen({
                     })
                   }
                 >
-                  <View style={styles.avatar}>
-                    <Text style={styles.avatarText}>{getConversationName(item).charAt(0)}</Text>
-                  </View>
+                  <ConversationAvatar
+                    uri={item.shop?.avatar}
+                    fallbackText={getConversationName(item)}
+                  />
                   <View style={styles.listBody}>
                     <View style={styles.listTopRow}>
                       <Text style={styles.listTitle} numberOfLines={1}>
@@ -342,7 +385,13 @@ export default function InboxScreen({
                       </Text>
                       <Text style={styles.listTime}>{item.timeLabel || ''}</Text>
                     </View>
-                    <Text style={styles.listPreview} numberOfLines={1}>
+                    <Text
+                      style={[
+                        styles.listPreview,
+                        /đã gỡ/.test(String(item.lastMessage || '')) && styles.listPreviewUnsent,
+                      ]}
+                      numberOfLines={1}
+                    >
                       {item.lastMessage || 'Chưa có tin nhắn'}
                     </Text>
                   </View>
@@ -451,6 +500,7 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     borderWidth: 1,
     borderColor: '#e2e8f0',
+    gap: 14,
   },
   avatar: {
     width: 48,
@@ -459,10 +509,15 @@ const styles = StyleSheet.create({
     backgroundColor: '#e8f3f1',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
+    flexShrink: 0,
+    overflow: 'hidden',
+  },
+  avatarImage: {
+    width: 48,
+    height: 48,
   },
   avatarText: { fontSize: 18, fontWeight: '800', color: '#0d7377' },
-  listBody: { flex: 1, minWidth: 0 },
+  listBody: { flex: 1, minWidth: 0, gap: 4 },
   listTopRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 8, alignItems: 'center' },
   listTitle: { fontSize: 15, fontWeight: '800', color: '#0f172a', flex: 1 },
   notificationTitle: { fontSize: 15, fontWeight: '800', color: '#0f172a', flex: 1 },
@@ -474,7 +529,8 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   listTime: { fontSize: 12, color: '#94a3b8', fontWeight: '600' },
-  listPreview: { color: '#64748b', marginTop: 4, fontSize: 13, fontWeight: '500' },
+  listPreview: { color: '#64748b', fontSize: 13, fontWeight: '500', lineHeight: 18 },
+  listPreviewUnsent: { fontStyle: 'italic', color: '#475569' },
   listPreviewNew: { color: '#0d7377', fontWeight: '700' },
   unreadDot: {
     width: 10,

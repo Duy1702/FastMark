@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, FlatList, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, FlatList, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { useSelector } from 'react-redux';
@@ -24,14 +24,9 @@ import { calculateDistanceMeters, formatDistance, hasValidLocation, normalizeExp
 import { loadNearbyRegisteredShops, reverseGeocodeLocation } from '../../viewmodel/map/mapViewModel';
 import { loadStoreById } from '../../viewmodel/store/storeViewModel';
 import { mapLogger as log } from '../../core/utils/logger';
-
-const TYPE_EMOJI = {
-  cafe: '☕',
-  food: '🍜',
-  milktea: '🧋',
-  snack: '🍿',
-  shop: '🏪',
-};
+import { RESERVATION_TAB } from '../../constants/sellerOrders';
+import AvatarBadge from '../shared/components/AvatarBadge';
+import { isRemoteAvatarUrl } from '../../core/utils/avatarInitial';
 
 const TYPE_LABEL = {
   cafe: 'Cà phê',
@@ -55,34 +50,18 @@ function formatScanCoords(location) {
   return `${Number(location.latitude).toFixed(5)}, ${Number(location.longitude).toFixed(5)}`;
 }
 
-function isRemoteIcon(value) {
-  return /^https?:\/\//i.test(String(value || '').trim());
-}
-
 function MapCategoryOption({ category, selected, onPress }) {
-  const iconValue = String(category.icon || '').trim();
-  const showRemoteImage = isRemoteIcon(iconValue);
-
   return (
     <Pressable
       style={[styles.categoryItem, selected && styles.categoryItemActive]}
       onPress={onPress}
     >
-      <View style={styles.categoryOptionRow}>
-        {showRemoteImage ? (
-          <Image source={{ uri: iconValue }} style={styles.categoryOptionImage} />
-        ) : (
-          <View style={styles.categoryOptionImagePlaceholder}>
-            <Text style={styles.categoryOptionEmoji}>{iconValue || '🏪'}</Text>
-          </View>
-        )}
-        <Text
-          style={[styles.categoryOptionName, selected && styles.categoryTextActive]}
-          numberOfLines={1}
-        >
-          {category.name}
-        </Text>
-      </View>
+      <Text
+        style={[styles.categoryOptionName, selected && styles.categoryTextActive]}
+        numberOfLines={1}
+      >
+        {category.name}
+      </Text>
       {selected ? <Text style={styles.checkmark}>✓</Text> : null}
     </Pressable>
   );
@@ -94,6 +73,7 @@ export default function MapScreen({
   onOpenChat,
   onClearFocus,
   onPickupCompleted,
+  onOpenBuyerOrders,
   onNavigationStateChange,
   onEditAccount,
   onSellerAction,
@@ -400,7 +380,6 @@ export default function MapScreen({
         return;
       }
       byId.set(String(category.id), {
-        icon: String(category.icon || '').trim(),
         name: category.name || category.categoryName || '',
       });
     });
@@ -417,14 +396,13 @@ export default function MapScreen({
         category_id: categoryId,
         categoryId,
         category_name: shop.category_name || categoryMeta?.name || '',
-        category_icon: String(shop.category_icon || shop.categoryIcon || categoryMeta?.icon || '').trim(),
       };
     },
     [shopCategoryLookup]
   );
 
   const startDirectionsToStore = useCallback(
-    ({ shopId, storeName, latitude, longitude, categoryIcon = '', categoryId = '', storeAvatar = '' }) => {
+    ({ shopId, storeName, latitude, longitude, categoryId = '', storeAvatar = '' }) => {
       const nextLatitude = Number(latitude);
       const nextLongitude = Number(longitude);
 
@@ -433,13 +411,6 @@ export default function MapScreen({
         return;
       }
 
-      const { category_icon: resolvedIcon } = enrichShopWithCategory({
-        category_icon: categoryIcon,
-        categoryIcon,
-        category_id: categoryId,
-        categoryId,
-      });
-
       setStoreNav(null);
       setMenuVisible(false);
       setDirectionsSession({
@@ -447,17 +418,16 @@ export default function MapScreen({
         reservationId: null,
         storeName: storeName || 'Gian hàng',
         storeAvatar: String(storeAvatar || '').trim(),
-        categoryIcon: resolvedIcon,
         destination: {
           latitude: nextLatitude,
           longitude: nextLongitude,
-          category_icon: resolvedIcon,
+          image_url: String(storeAvatar || '').trim(),
           type: 'shop',
         },
       });
       onClearFocus?.();
     },
-    [enrichShopWithCategory, onClearFocus]
+    [onClearFocus]
   );
 
   useEffect(() => {
@@ -504,11 +474,10 @@ export default function MapScreen({
           reservationId: focusStoreRequest?.reservationId || null,
           storeName: focusStoreRequest?.storeName || enrichedStore.name || 'Gian hàng',
           storeAvatar: String(enrichedStore.image_url || enrichedStore.cover_image_url || '').trim(),
-          categoryIcon: enrichedStore.category_icon || '',
           destination: {
             latitude: targetStore.latitude,
             longitude: targetStore.longitude,
-            category_icon: enrichedStore.category_icon || '',
+            image_url: String(enrichedStore.image_url || enrichedStore.cover_image_url || '').trim(),
             type: 'shop',
           },
         });
@@ -769,13 +738,12 @@ export default function MapScreen({
     const dynamicCategories = shopCategories.map((category) => ({
       key: String(category.id),
       name: category.name || category.categoryName || 'Danh mục',
-      icon: category.icon || '',
       description: category.description || '',
     }));
 
     return [
-      { key: 'none', name: 'Ẩn tất cả', icon: '🚫' },
-      { key: 'all', name: 'Tất cả gian hàng', icon: '🌐' },
+      { key: 'none', name: 'Ẩn tất cả' },
+      { key: 'all', name: 'Tất cả gian hàng' },
       ...dynamicCategories,
     ];
   }, [shopCategories]);
@@ -1029,18 +997,16 @@ export default function MapScreen({
                     ]}
                     onPress={() => openStore(restaurant.id)}
                   >
-                    {restaurant.image_url ? (
-                      <Image
-                        source={{ uri: restaurant.image_url }}
-                        style={styles.nearbyThumb}
-                      />
-                    ) : (
-                      <View style={styles.nearbyThumbPlaceholder}>
-                        <Text style={styles.nearbyThumbEmoji}>
-                          {TYPE_EMOJI[restaurant.type] || '🏪'}
-                        </Text>
-                      </View>
-                    )}
+                    <AvatarBadge
+                      name={restaurant.shop_name || restaurant.name || 'S'}
+                      uri={
+                        isRemoteAvatarUrl(restaurant.image_url)
+                          ? restaurant.image_url
+                          : ''
+                      }
+                      size={56}
+                      style={styles.nearbyThumb}
+                    />
                     <View style={styles.nearbyCardBody}>
                       <View style={styles.nearbyCardTitleRow}>
                         <Text style={styles.nearbyName} numberOfLines={1}>
@@ -1078,7 +1044,11 @@ export default function MapScreen({
         store={dealModal?.store}
         preselectedVariantId={dealModal?.preselectedVariantId}
         onClose={() => setDealModal(null)}
-        onSuccess={() => setDealModal(null)}
+        onSuccess={() => {
+          setDealModal(null);
+          setStoreNav(null);
+          onOpenBuyerOrders?.(RESERVATION_TAB.PENDING_PRICE);
+        }}
       />
       <ReservationModal
         visible={Boolean(reserveModal)}
@@ -1086,7 +1056,11 @@ export default function MapScreen({
         store={reserveModal?.store}
         preselectedVariantId={reserveModal?.preselectedVariantId}
         onClose={() => setReserveModal(null)}
-        onSuccess={() => setReserveModal(null)}
+        onSuccess={() => {
+          setReserveModal(null);
+          setStoreNav(null);
+          onOpenBuyerOrders?.(RESERVATION_TAB.HOLDING);
+        }}
       />
     </>
   );
@@ -1182,19 +1156,8 @@ const styles = StyleSheet.create({
   nearbyThumb: {
     width: 56,
     height: 56,
-    borderRadius: 10,
-    backgroundColor: '#e2e8f0',
-  },
-  nearbyThumbPlaceholder: {
-    width: 56,
-    height: 56,
-    borderRadius: 10,
-    backgroundColor: '#ccfbf1',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  nearbyThumbEmoji: {
-    fontSize: 24,
+    borderRadius: 28,
+    flexShrink: 0,
   },
   nearbyCardBody: {
     flex: 1,
@@ -1367,32 +1330,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '800',
     color: '#64748b',
-  },
-  categoryOptionRow: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    minWidth: 0,
-  },
-  categoryOptionImage: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: '#f8fafc',
-  },
-  categoryOptionImagePlaceholder: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: '#f1f5f9',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-  },
-  categoryOptionEmoji: {
-    fontSize: 18,
   },
   categoryOptionName: {
     flex: 1,

@@ -8,10 +8,13 @@ import {
   Text,
   View,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 
 import { getMyProductsOnBackend } from '../../api/productApi';
 import { getCurrentUserIdToken } from '../../repository/authRepository';
 import { formatPriceRange } from '../../core/utils/productFormat';
+import SellerPostTabScreen from './SellerPostTabScreen';
+import SellerProductDetailScreen from './SellerProductDetailScreen';
 
 function mapApiProductToManageCard(product) {
   const variants = product.variants || [];
@@ -76,11 +79,14 @@ function ProductManageCard({ product, onPress }) {
 
 export default function SellerProductsTabScreen({
   productRefreshKey = 0,
-  onOpenProductDetail,
+  onProductChanged,
+  onNavigationStateChange,
 }) {
   const [products, setProducts] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
+  const [showPost, setShowPost] = useState(false);
+  const [productDetailId, setProductDetailId] = useState(null);
 
   const loadProducts = useCallback(async () => {
     setIsLoading(true);
@@ -103,6 +109,44 @@ export default function SellerProductsTabScreen({
   useEffect(() => {
     loadProducts();
   }, [loadProducts, productRefreshKey]);
+
+  useEffect(() => {
+    onNavigationStateChange?.(Boolean(showPost || productDetailId));
+  }, [onNavigationStateChange, productDetailId, showPost]);
+
+  if (showPost) {
+    return (
+      <SellerPostTabScreen
+        onBack={() => setShowPost(false)}
+        onProductCreated={(productId) => {
+          onProductChanged?.();
+          setShowPost(false);
+          if (productId) {
+            setProductDetailId(String(productId));
+          } else {
+            loadProducts();
+          }
+        }}
+        onProductChanged={onProductChanged}
+      />
+    );
+  }
+
+  if (productDetailId) {
+    return (
+      <SellerProductDetailScreen
+        productId={productDetailId}
+        onBack={() => {
+          setProductDetailId(null);
+          loadProducts();
+        }}
+        onChanged={() => {
+          onProductChanged?.();
+          loadProducts();
+        }}
+      />
+    );
+  }
 
   return (
     <View style={styles.screen}>
@@ -132,18 +176,28 @@ export default function SellerProductsTabScreen({
             <View style={styles.emptyCard}>
               <Text style={styles.emptyTitle}>Chưa có sản phẩm</Text>
               <Text style={styles.emptyText}>
-                Vào tab Đăng tin để tạo sản phẩm đầu tiên cho gian hàng.
+                Nhấn nút Đăng tin ở góc dưới bên phải để tạo sản phẩm đầu tiên.
               </Text>
             </View>
           }
           renderItem={({ item }) => (
             <ProductManageCard
               product={item}
-              onPress={() => onOpenProductDetail?.(item.id)}
+              onPress={() => setProductDetailId(item.id)}
             />
           )}
         />
       )}
+
+      <Pressable
+        onPress={() => setShowPost(true)}
+        style={({ pressed }) => [styles.fab, pressed && styles.fabPressed]}
+        accessibilityRole="button"
+        accessibilityLabel="Đăng tin"
+      >
+        <Ionicons name="add" size={28} color="#ffffff" />
+        <Text style={styles.fabLabel}>Đăng tin</Text>
+      </Pressable>
     </View>
   );
 }
@@ -168,7 +222,7 @@ const styles = StyleSheet.create({
   },
   topBarSpacer: { width: 36 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
-  listContent: { padding: 16, paddingBottom: 24 },
+  listContent: { padding: 16, paddingBottom: 100 },
   productCard: {
     flexDirection: 'row',
     backgroundColor: '#ffffff',
@@ -273,4 +327,27 @@ const styles = StyleSheet.create({
     backgroundColor: '#0d7377',
   },
   retryButtonText: { color: '#ffffff', fontWeight: '800' },
+  fab: {
+    position: 'absolute',
+    right: 18,
+    bottom: 22,
+    minHeight: 56,
+    borderRadius: 28,
+    paddingHorizontal: 18,
+    backgroundColor: '#0d7377',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    shadowColor: '#0f172a',
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 5,
+  },
+  fabPressed: { opacity: 0.9 },
+  fabLabel: {
+    color: '#ffffff',
+    fontSize: 15,
+    fontWeight: '800',
+  },
 });

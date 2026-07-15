@@ -4,6 +4,7 @@ const DEFAULT_LOCATION = {
 };
 
 const MAP_EVENT_SOURCE = 'fastmark-map';
+export const LEAFLET_HTML_REVISION = 15;
 
 function safeJson(value) {
   return JSON.stringify(value).replace(/</g, '\\u003c');
@@ -83,41 +84,18 @@ export function createLeafletHtml({ currentLocation = null } = {}) {
       }
 
       .shop-marker {
-        width: 36px;
+        position: relative;
+        width: 28px;
         height: 36px;
-        border-radius: 999px;
-        border: 1px solid #e2e8f0;
-        background: #f8fafc;
-        box-shadow: 0 4px 10px rgba(15, 23, 42, 0.2);
-        overflow: hidden;
         box-sizing: border-box;
-        display: block;
-        flex-shrink: 0;
       }
 
-      .shop-marker img {
-        width: 36px;
+      .shop-marker svg {
+        width: 28px;
         height: 36px;
-        object-fit: cover;
-        object-position: center;
         display: block;
-        background: #f8fafc;
-        border-radius: 999px;
-      }
-
-      .shop-marker-emoji {
-        width: 36px;
-        height: 36px;
-        border-radius: 999px;
-        border: 1px solid #e2e8f0;
-        background: #f1f5f9;
-        box-shadow: 0 4px 10px rgba(15, 23, 42, 0.2);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 18px;
-        line-height: 1;
-        box-sizing: border-box;
+        overflow: visible;
+        filter: drop-shadow(0 3px 8px rgba(13, 115, 119, 0.35));
       }
 
       .fastmark-restaurant-icon {
@@ -125,8 +103,7 @@ export function createLeafletHtml({ currentLocation = null } = {}) {
         border: none !important;
       }
 
-      .fastmark-restaurant-icon .shop-marker,
-      .fastmark-restaurant-icon .shop-marker-emoji {
+      .fastmark-restaurant-icon .shop-marker {
         pointer-events: auto;
         touch-action: manipulation;
       }
@@ -461,12 +438,11 @@ export function createLeafletHtml({ currentLocation = null } = {}) {
         const destIcon = L.divIcon({
           className: 'fastmark-restaurant-icon',
           html: getShopMarkerIcon({
-            category_icon: to.category_icon || to.categoryIcon || '',
-            categoryIcon: to.category_icon || to.categoryIcon || '',
+            image_url: to.image_url || to.storeAvatar || '',
             type: to.type || 'shop',
           }),
-          iconSize: [36, 36],
-          iconAnchor: [18, 18],
+          iconSize: [28, 36],
+          iconAnchor: [14, 36],
         });
 
         destinationMarker = L.marker(getLatLng(to), {
@@ -523,18 +499,60 @@ export function createLeafletHtml({ currentLocation = null } = {}) {
         return value.indexOf('http://') === 0 || value.indexOf('https://') === 0;
       }
 
-      function getShopMarkerIcon(restaurant) {
-        const iconValue = String(restaurant.category_icon || restaurant.categoryIcon || '').trim();
-        if (isRemoteIconUrl(iconValue)) {
-          return (
-            '<div class="shop-marker">' +
-            '<img src="' + escapeHtmlAttr(iconValue) + '" alt="" ' +
-            'style="width:36px;height:36px;object-fit:cover;object-position:center;display:block;background:#f8fafc;border-radius:999px;" />' +
-            '</div>'
-          );
+      const SHOP_PIN_PATH =
+        'M12 0C5.4 0 0 5.4 0 12c0 9 12 24 12 24s12-15 12-24C24 5.4 18.6 0 12 0z';
+
+      function getShopNameInitial(restaurant) {
+        const name = String(
+          restaurant.shop_name ||
+          restaurant.shopName ||
+          restaurant.name ||
+          ''
+        ).trim().replace(/^@+/, '');
+        if (!name) {
+          return '?';
         }
-        const emoji = iconValue || getRestaurantEmoji(restaurant.type);
-        return '<div class="shop-marker-emoji">' + emoji + '</div>';
+        return name.charAt(0).toLocaleUpperCase('vi-VN');
+      }
+
+      function getShopMarkerIcon(restaurant) {
+        const avatarUrl = String(
+          restaurant.image_url ||
+          restaurant.imageUrl ||
+          restaurant.storeAvatar ||
+          restaurant.cover_image_url ||
+          restaurant.coverImageUrl ||
+          ''
+        ).trim();
+        const imageUrl = isRemoteIconUrl(avatarUrl) ? avatarUrl : '';
+        const initial = escapeHtmlAttr(getShopNameInitial(restaurant));
+        const clipId = 'shop-avt-' + String(restaurant.id || Math.random()).replace(/[^a-zA-Z0-9_-]/g, '');
+
+        // Avatar fills the round pin head (tight against the white pin stroke).
+        const avatarLayer = imageUrl
+          ? '<defs><clipPath id="' + clipId + '">' +
+            '<circle cx="12" cy="11" r="10.85"/></clipPath></defs>' +
+            '<circle cx="12" cy="11" r="10.85" fill="#f1f5f9"/>' +
+            '<g clip-path="url(#' + clipId + ')">' +
+            '<image href="' + escapeHtmlAttr(imageUrl) + '" ' +
+            'xlink:href="' + escapeHtmlAttr(imageUrl) + '" ' +
+            'x="1.15" y="0.15" width="21.7" height="21.7" ' +
+            'preserveAspectRatio="xMidYMid slice"/>' +
+            '</g>'
+          : '<circle cx="12" cy="11" r="10.85" fill="#0a5c5f"/>' +
+            '<text x="12" y="11.5" text-anchor="middle" dominant-baseline="central" ' +
+            'fill="#ffffff" font-size="12" font-weight="800" font-family="sans-serif">' +
+            initial +
+            '</text>';
+
+        return (
+          '<div class="shop-marker">' +
+          '<svg viewBox="0 0 24 36" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">' +
+          '<path fill="#0d7377" stroke="#ffffff" stroke-width="2.25" d="' + SHOP_PIN_PATH + '"/>' +
+          avatarLayer +
+          '</svg>' +
+          '</div>'
+        );
       }
 
       function drawRestaurants(restaurantsList) {
@@ -554,8 +572,8 @@ export function createLeafletHtml({ currentLocation = null } = {}) {
           const icon = L.divIcon({
             className: 'fastmark-restaurant-icon',
             html: getShopMarkerIcon(r),
-            iconSize: [36, 36],
-            iconAnchor: [18, 18],
+            iconSize: [28, 36],
+            iconAnchor: [14, 36],
           });
 
           const marker = L.marker(latLng, {

@@ -26,11 +26,11 @@ import {
   getSellerRegisterButtonLabel,
 } from '../seller/sellerRegistrationFlow';
 import { getMyProductsOnBackend } from '../../api/productApi';
-import { getSellerShopSettingsOnBackend } from '../../api/sellerOpsApi';
+import { getSellerShopSettingsOnBackend, uploadSellerShopAvatarOnBackend } from '../../api/sellerOpsApi';
 import { getCurrentUserIdToken } from '../../repository/authRepository';
 import StarRating from '../store/components/StarRating';
-import { OrdersTabIcon } from '../shared/components/TabBarIcons';
 import BuyerQuickMenu from '../shared/components/BuyerQuickMenu';
+import AvatarBadge from '../shared/components/AvatarBadge';
 
 function pickShopDescription(...values) {
   for (const value of values) {
@@ -109,27 +109,9 @@ function mapApiProductToCard(product) {
 }
 
 function ProfileAvatar({ name, photoUrl, onPress, isUploading }) {
-  const initial = (name || 'U').charAt(0).toUpperCase();
-  const [imageError, setImageError] = useState(false);
-  const resolvedUrl = resolveImageUrl(photoUrl);
-
-  useEffect(() => {
-    setImageError(false);
-  }, [resolvedUrl]);
-
   return (
     <View style={styles.avatarWrap}>
-      {resolvedUrl && !imageError ? (
-        <Image
-          source={{ uri: resolvedUrl }}
-          style={styles.avatarImage}
-          onError={() => setImageError(true)}
-        />
-      ) : (
-        <View style={styles.avatarFallback}>
-          <Text style={styles.avatarFallbackText}>{initial}</Text>
-        </View>
-      )}
+      <AvatarBadge name={name} uri={photoUrl} size={88} />
       <Pressable
         onPress={onPress}
         disabled={isUploading}
@@ -158,6 +140,7 @@ export default function AccountProfileScreen({
   onOpenInbox,
   onOpenBuyerOrders,
   onOpenSellerShopSettings,
+  onOpenSellerReviews,
   onOpenSellerOrders,
   onOpenSellerStats,
   onOpenBuyerView,
@@ -188,6 +171,7 @@ export default function AccountProfileScreen({
   const successMessage = useSelector(selectAuthSuccessMessage);
   const [menuOpen, setMenuOpen] = useState(false);
   const [localError, setLocalError] = useState('');
+  const [localSuccess, setLocalSuccess] = useState('');
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const [sellerProducts, setSellerProducts] = useState([]);
   const [shopContact, setShopContact] = useState(null);
@@ -269,7 +253,18 @@ export default function AccountProfileScreen({
 
   const displayName = profile?.fullName || user?.displayName || 'Fastmark user';
   const userName = profile?.userName || user?.email?.split('@')[0] || '';
-  const avatarUrl = resolveImageUrl(profile?.photoUrl) || resolveImageUrl(user?.photoURL);
+  const personalAvatarUrl = resolveImageUrl(profile?.photoUrl) || resolveImageUrl(user?.photoURL);
+  const shopAvatarUrl = resolveImageUrl(
+    shopContact?.avatar ||
+      shopContact?.shopAvatar ||
+      shopSettings?.avatar ||
+      shopSettings?.shopAvatar ||
+      profile?.shopAvatar
+  );
+  // Buyer avt (User.Avatar) và shop avt (ShopProfile.avatar) tách hoàn toàn — không fallback lẫn nhau.
+  const avatarUrl = showAsSeller ? shopAvatarUrl : personalAvatarUrl;
+  const shopDisplayName = shopContact?.shopName || shopSettings?.shopName || profile?.shopName || '';
+  const avatarLabelName = showAsSeller ? shopDisplayName || displayName : displayName;
 
   const shopDescription = pickShopDescription(
     shopSettings?.description,
@@ -278,7 +273,8 @@ export default function AccountProfileScreen({
     shopContact?.shopDescription,
     profile?.shopDescription
   );
-  const showShopDescription = showAsSeller || Boolean(shopDescription);
+  // Shop tiểu sử chỉ hiện ở chế độ người bán — không gắn vào tài khoản cá nhân.
+  const showShopDescription = showAsSeller;
   const shopDescriptionText =
     shopDescription || 'Chưa có mô tả. Hãy cập nhật trong Cài đặt shop.';
 
@@ -306,12 +302,34 @@ export default function AccountProfileScreen({
   async function handlePickAvatar() {
     try {
       setLocalError('');
+      setLocalSuccess('');
       const picked = await pickImageBase64();
       if (!picked) {
         return;
       }
 
       setIsUploadingAvatar(true);
+
+      if (showAsSeller) {
+        const idToken = await getCurrentUserIdToken();
+        if (!idToken) {
+          throw new Error('Phiên đăng nhập đã hết hạn.');
+        }
+
+        const result = await uploadSellerShopAvatarOnBackend({
+          idToken,
+          imageBase64: picked.imageBase64,
+          mimeType: picked.mimeType,
+        });
+        const shop = result?.shop;
+        if (shop) {
+          setShopContact(shop);
+          dispatch(applyShopSettingsToProfile(shop));
+        }
+        setLocalSuccess(result?.message || 'Cập nhật ảnh gian hàng thành công.');
+        return;
+      }
+
       await dispatch(
         uploadUserAvatar({
           imageBase64: picked.imageBase64,
@@ -319,13 +337,18 @@ export default function AccountProfileScreen({
         })
       ).unwrap();
     } catch (pickError) {
-      setLocalError(typeof pickError === 'string' ? pickError : 'Không upload được avatar.');
+      setLocalError(
+        typeof pickError === 'string'
+          ? pickError
+          : pickError?.message || 'Không upload được avatar.'
+      );
     } finally {
       setIsUploadingAvatar(false);
     }
   }
 
   const feedbackMessage = localError || error;
+  const feedbackSuccess = localSuccess || successMessage;
 
   return (
     <View style={styles.screen}>
@@ -392,18 +415,16 @@ export default function AccountProfileScreen({
 
           <View style={styles.profileHeaderRow}>
             <ProfileAvatar
-              name={displayName}
+              name={avatarLabelName}
               photoUrl={avatarUrl}
               onPress={handlePickAvatar}
               isUploading={isUploadingAvatar}
             />
             <View style={styles.profileHeaderInfo}>
               <Text style={styles.displayName} numberOfLines={1}>
-                {showAsSeller && (shopContact?.shopName || shopSettings?.shopName)
-                  ? shopContact?.shopName || shopSettings?.shopName
-                  : displayName}
+                {showAsSeller && shopDisplayName ? shopDisplayName : displayName}
               </Text>
-              {showAsSeller && (shopContact?.shopName || shopSettings?.shopName) ? (
+              {showAsSeller && shopDisplayName ? (
                 <Text style={styles.personalNameHint} numberOfLines={1}>
                   Chủ shop: {displayName}
                 </Text>
@@ -461,8 +482,7 @@ export default function AccountProfileScreen({
               onPress={onOpenBuyerOrders}
               style={({ pressed }) => [styles.ordersEntry, pressed && styles.buttonPressed]}
             >
-              <OrdersTabIcon color="#0d7377" size={22} filled />
-              <Text style={styles.ordersEntryText}>Đơn hàng</Text>
+              <Text style={styles.ordersEntryText}>Đơn hàng của bạn</Text>
             </Pressable>
           ) : null}
 
@@ -504,6 +524,26 @@ export default function AccountProfileScreen({
                     <Text style={[styles.contactValue, shopContact?.isOpen === 0 && styles.closedText]}>
                       {shopContact?.isOpen === 0 ? 'Đang đóng cửa' : 'Đang mở cửa'}
                     </Text>
+                  </View>
+                  <View style={styles.sellerToolsRow}>
+                    <Pressable
+                      onPress={() => onOpenSellerShopSettings?.()}
+                      style={({ pressed }) => [
+                        styles.sellerToolButton,
+                        pressed && styles.buttonPressed,
+                      ]}
+                    >
+                      <Text style={styles.sellerToolText}>Cài đặt shop</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => onOpenSellerReviews?.()}
+                      style={({ pressed }) => [
+                        styles.sellerToolButton,
+                        pressed && styles.buttonPressed,
+                      ]}
+                    >
+                      <Text style={styles.sellerToolText}>Quản lý đánh giá</Text>
+                    </Pressable>
                   </View>
                 </>
               )}
@@ -548,7 +588,7 @@ export default function AccountProfileScreen({
         </View>
 
         {feedbackMessage ? <Text style={styles.errorText}>{feedbackMessage}</Text> : null}
-        {successMessage ? <Text style={styles.successText}>{successMessage}</Text> : null}
+        {feedbackSuccess ? <Text style={styles.successText}>{feedbackSuccess}</Text> : null}
       </ScrollView>
     </View>
   );
@@ -745,7 +785,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     alignSelf: 'center',
-    gap: 8,
     paddingVertical: 10,
     paddingHorizontal: 22,
     borderRadius: 12,

@@ -364,7 +364,6 @@ export default function CategoriesPage() {
           type="shops"
           title="Danh mục cửa hàng"
           subtitle="Dùng khi người bán đăng ký gian hàng."
-          showIcon
         />
       )}
     </div>

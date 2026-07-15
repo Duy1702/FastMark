@@ -628,14 +628,30 @@ export default function BuyerOrdersScreen({
   embedded = true,
   onBack,
   onReviewStore,
+  initialTab,
+  tabRequestKey = 0,
 }) {
-  const [activeTab, setActiveTab] = useState(RESERVATION_TAB.HOLDING);
+  const [activeTab, setActiveTab] = useState(initialTab || RESERVATION_TAB.HOLDING);
   const [reservationModal, setReservationModal] = useState(null);
   const [reviewTarget, setReviewTarget] = useState(null);
   const [listRefreshKey, setListRefreshKey] = useState(0);
   const [detailTarget, setDetailTarget] = useState(null);
   const [pendingDealModal, setPendingDealModal] = useState(null);
   const { reviewedOrderCodes, markReviewed } = useReviewedOrderCodes();
+
+  useEffect(() => {
+    if (!initialTab) {
+      return;
+    }
+    setActiveTab((current) => (current === initialTab ? current : initialTab));
+  }, [initialTab, tabRequestKey]);
+
+  useEffect(() => {
+    if (!tabRequestKey) {
+      return;
+    }
+    setListRefreshKey((value) => value + 1);
+  }, [tabRequestKey]);
 
   const tabBar = (
     <View style={styles.tabRow}>

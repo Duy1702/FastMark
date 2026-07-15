@@ -280,6 +280,7 @@ async function promoteUserToSeller(user, verification, approvedById = null) {
       shopName: verification.shopName || user.FullName || user.UserName || "",
       categoryId,
       description: verification.shopDescription || "",
+      avatar: "",
       address: verification.address,
       DiaChiHeThong: verification.DiaChiHeThong || "",
       latitude: verification.latitude,

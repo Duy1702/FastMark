@@ -172,14 +172,13 @@ function pickShopText(shop, ...keys) {
 function resolveShopCategory(categoryMap, categoryId) {
   const entry = categoryMap.get(String(categoryId));
   if (!entry) {
-    return { name: "", icon: "" };
+    return { name: "" };
   }
   if (typeof entry === "string") {
-    return { name: entry, icon: "" };
+    return { name: entry };
   }
   return {
     name: entry.name || "",
-    icon: entry.icon || "",
   };
 }
 
@@ -189,8 +188,7 @@ function toPublicStore(
   productCount,
   distanceMeters,
   categoryName = "",
-  followCount = 0,
-  categoryIcon = ""
+  followCount = 0
 ) {
   const shopDisplayName =
     shop.shopName ||
@@ -219,8 +217,6 @@ function toPublicStore(
     shopUsername,
     categoryId: shop.categoryId ? String(shop.categoryId) : "",
     categoryName,
-    category_icon: categoryIcon,
-    categoryIcon,
     type: "shop",
     latitude: shop.latitude,
     longitude: shop.longitude,
@@ -243,8 +239,9 @@ function toPublicStore(
     total_products: Number(shop.totalProducts) || Number(productCount) || 0,
     sold_count: Number(shop.soldCount) || 0,
     total_likes: Number(shop.totalLikes) || 0,
-    image_url: user?.Avatar || "",
-    cover_image_url: user?.AnhBia || user?.Avatar || "",
+    // Shop branding only — never borrow the seller's personal User.Avatar.
+    image_url: shop?.avatar || "",
+    cover_image_url: shop?.avatar || "",
     distance_meters: Math.round(distanceMeters),
     is_registered_shop: true,
   };
@@ -324,8 +321,7 @@ async function listNearbyShops({ latitude, longitude, radiusMeters = 2000, limit
       productCount,
       distanceMeters,
       category.name,
-      0,
-      category.icon
+      0
     );
   });
 }
@@ -462,8 +458,7 @@ async function searchShops({
       productCounts[index],
       distanceMeters,
       category.name,
-      0,
-      category.icon
+      0
     );
     return {
       ...store,
@@ -520,8 +515,7 @@ async function getPublicShopById(shopId, { latitude, longitude } = {}) {
     productCount,
     distanceMeters,
     category.name,
-    followCount,
-    category.icon
+    followCount
   );
 }
 

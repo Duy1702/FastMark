@@ -48,12 +48,13 @@ export function normalizeStore(row) {
     total_products: Number(row.total_products ?? row.product_count ?? row.totalProducts ?? 0),
     sold_count: Number(row.sold_count ?? row.soldCount ?? 0),
     total_likes: Number(row.total_likes ?? row.totalLikes ?? row.likesCount ?? 0),
-    image_url: pickText(row.image_url, row.avatar, row.photoUrl),
+    // Prefer shop-owned fields only — do not inherit buyer/user photoUrl.
+    image_url: pickText(row.image_url, row.shopAvatar, row.avatar),
     cover_image_url: pickText(
       row.cover_image_url,
       row.coverImage,
-      row.anhBia,
       row.image_url,
+      row.shopAvatar,
       row.avatar
     ),
     is_registered_shop: isRegisteredShop,
@@ -61,6 +62,5 @@ export function normalizeStore(row) {
     category_name: row.categoryName || row.category_name || '',
     categoryId: row.categoryId || row.category_id || '',
     category_id: row.categoryId || row.category_id || '',
-    category_icon: row.categoryIcon || row.category_icon || '',
   };
 }

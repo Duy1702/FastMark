@@ -31,6 +31,7 @@ export const API_ENDPOINTS = {
   productById: (id) => `/api/products/${id}`,
   myProductById: (id) => `/api/products/mine/${id}`,
   sellerShop: '/api/seller/shop',
+  sellerShopAvatar: '/api/seller/shop/avatar',
   sellerOrders: '/api/seller/orders',
   sellerReservation: (id) => `/api/seller/reservations/${id}`,
   sellerReservationConfirm: (id) => `/api/seller/reservations/${id}/confirm`,
@@ -79,4 +80,6 @@ export const API_ENDPOINTS = {
   shopProducts: (id) => `/api/shops/${id}/products`,
   shopReviews: (id) => `/api/shops/${id}/reviews`,
   notifications: '/api/notifications',
+  notificationRead: (id) => `/api/notifications/${id}/read`,
+  notificationsReadAll: '/api/notifications/read-all',
 };

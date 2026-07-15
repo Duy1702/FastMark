@@ -64,13 +64,6 @@ router.delete(
   requireAdmin,
   asyncHandler(categoryController.deleteShopCategory)
 );
-router.post(
-  "/shops/:id/icon",
-  verifyFirebaseToken,
-  requireAdmin,
-  singleImage("icon"),
-  asyncHandler(categoryController.uploadShopCategoryIcon)
-);
 
 // Legacy routes -> product categories
 router.get("/", verifyFirebaseToken, requireAdmin, asyncHandler(categoryController.listCategories));

@@ -157,41 +157,67 @@ export function BagTabIcon({ color, size = 24, filled = false }) {
 }
 
 export function OrdersTabIcon({ color, size = 24, filled = false }) {
-  const boxW = size * 0.58;
-  const boxH = size * 0.5;
+  const cartW = size * 0.64;
+  const cartH = size * 0.38;
+  const wheel = Math.max(3, size * 0.14);
 
   return (
     <IconFrame size={size}>
+      {/* handle */}
       <View
         style={{
           position: 'absolute',
-          width: boxW,
-          height: boxH,
+          width: size * 0.22,
+          height: size * 0.2,
+          borderWidth: 2,
+          borderColor: color,
+          borderBottomWidth: 0,
+          borderTopLeftRadius: 5,
+          borderTopRightRadius: 5,
+          top: size * 0.12,
+          left: size * 0.18,
+        }}
+      />
+      {/* basket */}
+      <View
+        style={{
+          position: 'absolute',
+          width: cartW,
+          height: cartH,
           borderWidth: 2,
           borderColor: color,
           borderRadius: 4,
+          borderTopLeftRadius: 2,
           backgroundColor: filled ? `${color}18` : 'transparent',
-          top: size * 0.22,
+          top: size * 0.3,
+          left: size * 0.16,
+        }}
+      />
+      {/* wheels */}
+      <View
+        style={{
+          position: 'absolute',
+          width: wheel,
+          height: wheel,
+          borderRadius: wheel / 2,
+          borderWidth: 2,
+          borderColor: color,
+          backgroundColor: filled ? color : 'transparent',
+          bottom: size * 0.14,
+          left: size * 0.28,
         }}
       />
       <View
         style={{
           position: 'absolute',
-          width: boxW * 0.55,
-          height: 2,
-          backgroundColor: color,
-          top: size * 0.38,
-          left: size * 0.22,
-        }}
-      />
-      <View
-        style={{
-          position: 'absolute',
-          width: boxW * 0.4,
-          height: 2,
-          backgroundColor: color,
-          top: size * 0.48,
-          left: size * 0.22,
+          width: wheel,
+          height: wheel,
+          borderRadius: wheel / 2,
+          borderWidth: 2,
+          borderColor: color,
+          backgroundColor: filled ? color : 'transparent',
+          bottom: size * 0.14,
+          left: size * 0.52,
         }}
       />
     </IconFrame>

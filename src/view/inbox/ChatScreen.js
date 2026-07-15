@@ -41,6 +41,9 @@ import { getCurrentUserIdToken } from '../../repository/authRepository';
 import { selectAuthProfile, selectAuthUser } from '../../viewmodel/auth/authSelectors';
 import ChatProfileScreen from './ChatProfileScreen';
 import CircularBackButton from '../shared/components/CircularBackButton';
+import AvatarBadge from '../shared/components/AvatarBadge';
+import { isRemoteAvatarUrl } from '../../core/utils/avatarInitial';
+import StoreDetailScreen from '../store/StoreDetailScreen';
 
 const MESSAGE_STATUS_LABEL = {
   sent: 'Đã gửi',
@@ -115,7 +118,7 @@ function DateSeparator({ label }) {
 
 function ImageMessageContent({ imageUri, isMine, caption, isDeleted }) {
   if (isDeleted) {
-    return <Text style={[styles.deletedText, isMine && styles.deletedTextMine]}>Tin nhắn đã được gỡ</Text>;
+    return <Text style={styles.deletedText}>Tin nhắn đã được gỡ</Text>;
   }
 
   return (
@@ -128,7 +131,7 @@ function ImageMessageContent({ imageUri, isMine, caption, isDeleted }) {
   );
 }
 
-function ChatBubble({ item, peerAvatarUri, peerInitial, onLongPress }) {
+function ChatBubble({ item, peerAvatarUri, peerName, onLongPress }) {
   const isMine = Boolean(item.isMine);
   const isDeleted = Boolean(item.isDeleted);
   const timeLabel = formatTimeLabel(item);
@@ -141,7 +144,13 @@ function ChatBubble({ item, peerAvatarUri, peerInitial, onLongPress }) {
       isDeleted={isDeleted}
     />
   ) : (
-    <Text style={[styles.bubbleText, isMine && styles.bubbleTextMine, isDeleted && (isMine ? styles.deletedTextMine : styles.deletedText)]}>
+    <Text
+      style={[
+        styles.bubbleText,
+        isMine && !isDeleted && styles.bubbleTextMine,
+        isDeleted && styles.deletedText,
+      ]}
+    >
       {item.content}
     </Text>
   );
@@ -153,14 +162,17 @@ function ChatBubble({ item, peerAvatarUri, peerInitial, onLongPress }) {
           <View
             style={[
               styles.bubble,
-              styles.bubbleMine,
+              isDeleted ? styles.bubbleDeleted : styles.bubbleMine,
               item.imageUri && !isDeleted && styles.bubbleImage,
-              isDeleted && styles.bubbleDeleted,
             ]}
           >
             {bubbleBody}
             <View style={styles.bubbleMetaMine}>
-              {timeLabel ? <Text style={styles.bubbleTimeMine}>{timeLabel}</Text> : null}
+              {timeLabel ? (
+                <Text style={isDeleted ? styles.bubbleTimeDeleted : styles.bubbleTimeMine}>
+                  {timeLabel}
+                </Text>
+              ) : null}
               {!isDeleted ? <MessageStatus status={item.status} /> : null}
             </View>
           </View>
@@ -171,24 +183,21 @@ function ChatBubble({ item, peerAvatarUri, peerInitial, onLongPress }) {
 
   return (
     <View style={styles.messageRowOtherWrap}>
-      <View style={styles.peerAvatar}>
-        {peerAvatarUri ? (
-          <Image source={{ uri: peerAvatarUri }} style={styles.peerAvatarImage} />
-        ) : (
-          <Text style={styles.peerAvatarText}>{peerInitial || '?'}</Text>
-        )}
-      </View>
+      <AvatarBadge name={peerName} uri={peerAvatarUri} size={28} />
       <View style={styles.messageRowOther}>
         <View
           style={[
             styles.bubble,
-            styles.bubbleOther,
+            isDeleted ? styles.bubbleDeleted : styles.bubbleOther,
             item.imageUri && !isDeleted && styles.bubbleImage,
-            isDeleted && styles.bubbleDeleted,
           ]}
         >
           {bubbleBody}
-          {timeLabel ? <Text style={styles.bubbleTimeOther}>{timeLabel}</Text> : null}
+          {timeLabel ? (
+            <Text style={isDeleted ? styles.bubbleTimeDeleted : styles.bubbleTimeOther}>
+              {timeLabel}
+            </Text>
+          ) : null}
         </View>
       </View>
     </View>
@@ -207,8 +216,10 @@ export default function ChatScreen({
   shopName,
   buyerId,
   buyerName,
+  buyerAvatar,
   onBack,
   onViewShop,
+  onConversationPreviewChange,
 }) {
   const listRef = useRef(null);
   const isSellerMode = mode === 'seller';
@@ -228,7 +239,7 @@ export default function ChatScreen({
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState('');
   const [peer, setPeer] = useState(null);
-  const [showProfile, setShowProfile] = useState(false);
+  const [peerOverlay, setPeerOverlay] = useState(null);
 
   const displayName = useMemo(() => {
     if (isSellerMode) {
@@ -237,7 +248,73 @@ export default function ChatScreen({
     return peer?.name || shopName || 'Gian hàng';
   }, [buyerName, isSellerMode, peer, shopName]);
 
-  const peerInitial = displayName.charAt(0).toUpperCase();
+  const peerStoreId = String(peer?.id || shopId || '').trim();
+
+  const accountPeer = useMemo(() => {
+    const resolveAvatar = (...values) => {
+      for (const value of values) {
+        const url = String(value || '').trim();
+        if (url && url !== 'null' && url !== 'undefined') {
+          return url;
+        }
+      }
+      return '';
+    };
+
+    if (isSellerMode) {
+      return {
+        id: peer?.id || buyerId || '',
+        fullName: peer?.fullName || peer?.name || buyerName || 'Khách hàng',
+        userName: peer?.userName || '',
+        avatar: resolveAvatar(peer?.avatar, peer?.photoUrl, buyerAvatar),
+        followersCount: Number(peer?.followersCount) || 0,
+        followingCount: Number(peer?.followingCount) || 0,
+        isOnline: Boolean(peer?.isOnline),
+        lastActiveAt: peer?.lastActiveAt,
+        activityLabel: peer?.activityLabel,
+      };
+    }
+
+    if (peer || shopId || shopName) {
+      return {
+        id: peer?.id || shopId || '',
+        // Prefer personal seller account fields, not shop branding.
+        fullName: peer?.fullName || 'Người dùng',
+        userName: peer?.userName || '',
+        avatar: resolveAvatar(peer?.accountAvatar, peer?.photoUrl),
+        accountAvatar: resolveAvatar(peer?.accountAvatar, peer?.photoUrl),
+        followersCount: Number(peer?.followersCount) || 0,
+        followingCount: Number(peer?.followingCount) || 0,
+        isOnline: Boolean(peer?.accountIsOnline ?? peer?.isOnline),
+        lastActiveAt: peer?.accountLastActiveAt || peer?.lastActiveAt,
+        activityLabel: peer?.accountActivityLabel || peer?.activityLabel,
+        shopName: peer?.shopName || shopName || '',
+      };
+    }
+
+    return null;
+  }, [buyerAvatar, buyerId, buyerName, isSellerMode, peer, shopId, shopName]);
+
+  function handleOpenPeer() {
+    // Buyer: mở thẳng gian hàng, không qua màn tài khoản trung gian.
+    if (!isSellerMode) {
+      if (peerStoreId) {
+        setPeerOverlay('store');
+        return;
+      }
+      if (accountPeer) {
+        setPeerOverlay('account');
+      }
+      return;
+    }
+
+    if (!accountPeer) {
+      return;
+    }
+    setPeerOverlay('account');
+  }
+
+  const peerAvatarUri = isRemoteAvatarUrl(peer?.avatar) ? String(peer.avatar).trim() : '';
   const activityStatus = peer?.isOnline
     ? 'Đang hoạt động'
     : peer?.activityLabel || formatActivityLabel(peer?.isOnline, peer?.lastActiveAt);
@@ -657,20 +734,29 @@ export default function ChatScreen({
         onPress: async () => {
           try {
             const activeConversationId = resolvedConversationId || (await ensureConversation());
-            let deleted;
+            let result;
 
             if (isSellerMode) {
               const idToken = await getCurrentUserIdToken();
-              deleted = await deleteSellerMessageOnBackend(
+              result = await deleteSellerMessageOnBackend(
                 idToken,
                 activeConversationId,
                 item.id
               );
             } else {
-              deleted = await deleteBuyerMessageOnBackend(activeConversationId, item.id);
+              result = await deleteBuyerMessageOnBackend(activeConversationId, item.id);
             }
 
+            const deleted = result?.message || result;
+            const ownName = isSellerMode
+              ? shopName || 'Người bán'
+              : authProfile?.fullName || authUser?.displayName || 'Người mua';
+            const preview =
+              result?.lastMessage ||
+              deleted?.conversationLastMessage ||
+              `${ownName} đã gỡ 1 tin nhắn`;
             setMessages((current) => mergeMessages(current, deleted));
+            onConversationPreviewChange?.(activeConversationId, preview);
           } catch (deleteError) {
             setError(deleteError.message || 'Không gỡ được tin nhắn.');
           }
@@ -679,20 +765,26 @@ export default function ChatScreen({
     ]);
   }
 
-  if (showProfile) {
+  if (peerOverlay === 'account' && accountPeer) {
     return (
       <ChatProfileScreen
-        peer={peer}
+        peer={accountPeer}
         peerType={isSellerMode ? 'user' : 'shop'}
-        onBack={() => setShowProfile(false)}
+        onBack={() => setPeerOverlay(null)}
         onViewShop={
-          !isSellerMode && onViewShop && peer?.id
-            ? () => {
-                setShowProfile(false);
-                onViewShop(peer.id);
-              }
+          !isSellerMode && peerStoreId
+            ? () => setPeerOverlay('store')
             : undefined
         }
+      />
+    );
+  }
+
+  if (peerOverlay === 'store' && peerStoreId) {
+    return (
+      <StoreDetailScreen
+        storeId={peerStoreId}
+        onBack={() => setPeerOverlay(null)}
       />
     );
   }
@@ -707,17 +799,15 @@ export default function ChatScreen({
         <CircularBackButton onPress={onBack} variant="plain" />
 
         <Pressable
-          onPress={() => setShowProfile(true)}
+          onPress={handleOpenPeer}
           style={({ pressed }) => [styles.headerInfo, pressed && styles.buttonPressed]}
+          accessibilityRole="button"
+          accessibilityLabel={
+            isSellerMode ? `Xem tài khoản ${displayName}` : `Xem gian hàng ${displayName}`
+          }
         >
           <View style={styles.headerAvatarWrap}>
-            <View style={styles.headerAvatar}>
-              {peer?.avatar ? (
-                <Image source={{ uri: peer.avatar }} style={styles.headerAvatarImage} />
-              ) : (
-                <Text style={styles.headerAvatarText}>{peerInitial}</Text>
-              )}
-            </View>
+            <AvatarBadge name={displayName} uri={peerAvatarUri} size={40} />
             {peer?.isOnline ? <View style={styles.onlineDot} /> : null}
           </View>
           <View style={styles.headerTextWrap}>
@@ -732,15 +822,6 @@ export default function ChatScreen({
             </Text>
           </View>
         </Pressable>
-
-        <View style={styles.headerActions}>
-          <Pressable style={({ pressed }) => [styles.iconButton, pressed && styles.buttonPressed]}>
-            <Text style={styles.headerActionText}>⌕</Text>
-          </Pressable>
-          <Pressable style={({ pressed }) => [styles.iconButton, pressed && styles.buttonPressed]}>
-            <Text style={styles.headerActionText}>⋮</Text>
-          </Pressable>
-        </View>
       </View>
 
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
@@ -765,8 +846,8 @@ export default function ChatScreen({
             return (
               <ChatBubble
                 item={item.message}
-                peerAvatarUri={peer?.avatar}
-                peerInitial={peerInitial}
+                peerAvatarUri={peerAvatarUri}
+                peerName={displayName}
                 onLongPress={handleLongPressMessage}
               />
             );
@@ -872,16 +953,6 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   activityOnline: { color: '#16a34a' },
-  headerActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 2,
-  },
-  headerActionText: {
-    color: '#334155',
-    fontSize: 18,
-    fontWeight: '700',
-  },
   sequenceText: {
     textAlign: 'center',
     color: '#64748b',
@@ -940,11 +1011,15 @@ const styles = StyleSheet.create({
     borderColor: '#e2e8f0',
     borderBottomLeftRadius: 6,
   },
-  bubbleDeleted: { backgroundColor: '#f1f5f9', borderWidth: 1, borderColor: '#e2e8f0' },
+  bubbleDeleted: {
+    backgroundColor: '#e8edf3',
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    borderBottomRightRadius: 6,
+  },
   bubbleText: { color: '#0f172a', fontSize: 14, lineHeight: 20, fontWeight: '500' },
   bubbleTextMine: { color: '#ffffff' },
-  deletedText: { color: '#94a3b8', fontStyle: 'italic' },
-  deletedTextMine: { color: 'rgba(255,255,255,0.85)', fontStyle: 'italic' },
+  deletedText: { color: '#475569', fontStyle: 'italic', fontWeight: '600' },
   bubbleImage: { padding: 4, overflow: 'hidden' },
   bubbleMetaMine: {
     flexDirection: 'row',
@@ -964,6 +1039,12 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginTop: 4,
     alignSelf: 'flex-start',
+  },
+  bubbleTimeDeleted: {
+    color: '#64748b',
+    fontSize: 11,
+    fontWeight: '600',
+    marginTop: 4,
   },
   imageMessageWrap: { maxWidth: 220 },
   chatImage: {

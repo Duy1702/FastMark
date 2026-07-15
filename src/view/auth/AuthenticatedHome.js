@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useDispatch, useSelector } from 'react-redux';
@@ -10,6 +10,7 @@ import { getSellerConversationsOnBackend } from '../../api/sellerOpsApi';
 import { APP_MODE_BUYER, APP_MODE_SELLER, useAppMode } from '../../hooks/useAppMode';
 import { useShopPresence } from '../../hooks/useShopPresence';
 import { useSellerAccessSync } from '../../hooks/useSellerAccessSync';
+import { RESERVATION_TAB } from '../../constants/sellerOrders';
 import { getCurrentUserIdToken } from '../../repository/authRepository';
 import { selectCanSwitchToSeller } from '../../viewmodel/auth/authSelectors';
 import { logoutUser } from '../../viewmodel/auth/authSlice';
@@ -23,7 +24,6 @@ import ProfilePanel from './ProfilePanel';
 import SellerOverviewScreen from '../seller/SellerOverviewScreen';
 import SellerProductsTabScreen from '../seller/SellerProductsTabScreen';
 import SellerOrdersTabScreen from '../seller/SellerOrdersTabScreen';
-import SellerPostTabScreen from '../seller/SellerPostTabScreen';
 
 const ACTIVE_COLOR = '#0F766E';
 const INACTIVE_COLOR = '#94A3B8';
@@ -39,12 +39,12 @@ const BUYER_TABS = [
 ];
 
 const SELLER_TABS = [
-  { key: 'overview', label: 'Tổng quan', icon: 'stats-chart-outline', activeIcon: 'stats-chart' },
-  { key: 'products', label: 'Sản phẩm', icon: 'basket-outline', activeIcon: 'basket' },
-  { key: 'post', label: 'Đăng tin', icon: 'add-circle-outline', activeIcon: 'add-circle' },
-  { key: 'orders', label: 'Đơn hàng', icon: 'receipt-outline', activeIcon: 'receipt' },
+  { key: 'overview', label: 'Thống kê', icon: 'stats-chart-outline', activeIcon: 'stats-chart' },
+  { key: 'products', label: 'Quản lý sản phẩm', icon: 'cube-outline', activeIcon: 'cube' },
+  { key: 'orders', label: 'Quản lý đơn hàng', icon: 'receipt-outline', activeIcon: 'receipt' },
   { key: 'inbox', label: 'Tin nhắn', icon: 'chatbubble-outline', activeIcon: 'chatbubble', badgeKey: 'messages' },
-  { key: 'profile', label: 'Tài khoản', icon: 'person-outline', activeIcon: 'person' },
+  { key: 'notifications', label: 'Thông báo', icon: 'notifications-outline', activeIcon: 'notifications', badgeKey: 'notifications' },
+  { key: 'profile', label: 'Tài khoản của tôi', icon: 'person-outline', activeIcon: 'person' },
 ];
 
 function getTabIconName(tab, isActive) {
@@ -55,11 +55,18 @@ function getTabIconName(tab, isActive) {
   return tab.icon;
 }
 
-function TabIcon({ icon, color, showBadge }) {
+function TabIcon({ icon, color, badgeCount = 0 }) {
+  const count = Math.max(0, Number(badgeCount) || 0);
+  const label = count > 99 ? '99+' : String(count);
+
   return (
     <View style={styles.iconWrap}>
       <Ionicons name={icon} size={ICON_SIZE} color={color} />
-      {showBadge ? <View style={styles.badge} /> : null}
+      {count > 0 ? (
+        <View style={[styles.badge, count > 9 && styles.badgeWide]}>
+          <Text style={styles.badgeText}>{label}</Text>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -78,10 +85,10 @@ export default function AuthenticatedHome() {
   const [productDetailId, setProductDetailId] = useState(null);
   const [productRefreshKey, setProductRefreshKey] = useState(0);
   const [inboxChatRequest, setInboxChatRequest] = useState(null);
-  const [openBuyerOrdersRequest, setOpenBuyerOrdersRequest] = useState(0);
+  const [openBuyerOrdersRequest, setOpenBuyerOrdersRequest] = useState(null);
   const [nestedTabState, setNestedTabState] = useState({});
-  const [hasUnreadMessages, setHasUnreadMessages] = useState(false);
-  const [hasUnreadNotifications, setHasUnreadNotifications] = useState(false);
+  const [unreadMessagesCount, setUnreadMessagesCount] = useState(0);
+  const [unreadNotificationsCount, setUnreadNotificationsCount] = useState(0);
 
   const [profileNavRequest, setProfileNavRequest] = useState(null);
 
@@ -103,12 +110,13 @@ export default function AuthenticatedHome() {
           getMyNotificationsOnBackend(),
         ]);
 
-        setHasUnreadMessages(
-          (conversations || []).some((item) => Number(item.unreadCount) > 0)
-        );
-        setHasUnreadNotifications(
-          (notifications || []).some((item) => !item.isRead)
-        );
+        const messageCount = (conversations || []).filter(
+          (item) => Math.max(0, Number(item.unreadCount) || 0) > 0
+        ).length;
+        const notificationCount = (notifications || []).filter((item) => !item.isRead).length;
+
+        setUnreadMessagesCount(messageCount);
+        setUnreadNotificationsCount(notificationCount);
         return;
       }
 
@@ -118,11 +126,16 @@ export default function AuthenticatedHome() {
           return;
         }
 
-        const conversations = await getSellerConversationsOnBackend(idToken);
-        setHasUnreadMessages(
-          (conversations || []).some((item) => Number(item.unreadCount) > 0)
-        );
-        setHasUnreadNotifications(false);
+        const [conversations, notifications] = await Promise.all([
+          getSellerConversationsOnBackend(idToken),
+          getMyNotificationsOnBackend(),
+        ]);
+        const messageCount = (conversations || []).filter(
+          (item) => Math.max(0, Number(item.unreadCount) || 0) > 0
+        ).length;
+        const notificationCount = (notifications || []).filter((item) => !item.isRead).length;
+        setUnreadMessagesCount(messageCount);
+        setUnreadNotificationsCount(notificationCount);
       }
     } catch {
       // Keep the previous badge state on transient failures.
@@ -161,14 +174,14 @@ export default function AuthenticatedHome() {
     return () => clearInterval(timer);
   }, [isReady, loadUnreadBadges, activeTab]);
 
-  function shouldShowBadge(tab) {
+  function getBadgeCount(tab) {
     if (tab.badgeKey === 'messages') {
-      return hasUnreadMessages;
+      return unreadMessagesCount;
     }
     if (tab.badgeKey === 'notifications') {
-      return hasUnreadNotifications;
+      return unreadNotificationsCount;
     }
-    return false;
+    return 0;
   }
 
   function handleOpenStoreFromProfile(storeId) {
@@ -207,9 +220,14 @@ export default function AuthenticatedHome() {
     setMapFocusRequest(null);
   }
 
-  function handlePickupCompleted() {
-    setOpenBuyerOrdersRequest(Date.now());
+  function handleOpenBuyerOrders(tab = RESERVATION_TAB.HOLDING) {
+    setOpenBuyerOrdersRequest({ at: Date.now(), tab });
+    setAppMode(APP_MODE_BUYER);
     setActiveTab('profile');
+  }
+
+  function handlePickupCompleted() {
+    handleOpenBuyerOrders(RESERVATION_TAB.HOLDING);
   }
 
   function handleProductChanged() {
@@ -218,7 +236,7 @@ export default function AuthenticatedHome() {
 
   function handleOpenProductDetail(productId) {
     setProductDetailId(productId || null);
-    if (productId) {
+    if (productId && isBuyerMode) {
       setActiveTab('profile');
     }
   }
@@ -279,6 +297,7 @@ export default function AuthenticatedHome() {
             onOpenChat={handleOpenChat}
             onClearFocus={handleClearMapFocus}
             onPickupCompleted={handlePickupCompleted}
+            onOpenBuyerOrders={handleOpenBuyerOrders}
             onNavigationStateChange={(isNested) => updateNestedTabState('home', isNested)}
             onEditAccount={handleHomeEditAccount}
             onSellerAction={handleHomeSellerAction}
@@ -288,6 +307,7 @@ export default function AuthenticatedHome() {
         ),
         products: (
           <ProductsScreen
+            onOpenBuyerOrders={handleOpenBuyerOrders}
             onNavigationStateChange={(isNested) => updateNestedTabState('products', isNested)}
           />
         ),
@@ -329,17 +349,27 @@ export default function AuthenticatedHome() {
       products: (
         <SellerProductsTabScreen
           productRefreshKey={productRefreshKey}
-          onOpenProductDetail={handleOpenProductDetail}
-        />
-      ),
-      post: (
-        <SellerPostTabScreen
-          onProductCreated={handleOpenProductDetail}
           onProductChanged={handleProductChanged}
+          onNavigationStateChange={(isNested) => updateNestedTabState('products', isNested)}
         />
       ),
-      orders: <SellerOrdersTabScreen />,
-      inbox: <InboxScreen />,
+      orders: (
+        <SellerOrdersTabScreen
+          onNavigationStateChange={(isNested) => updateNestedTabState('orders', isNested)}
+        />
+      ),
+      inbox: (
+        <InboxScreen
+          messagesOnly
+          onViewShop={handleOpenStoreFromProfile}
+          onNavigationStateChange={(isNested) => updateNestedTabState('inbox', isNested)}
+        />
+      ),
+      notifications: (
+        <NotificationsScreen
+          onNavigationStateChange={(isNested) => updateNestedTabState('notifications', isNested)}
+        />
+      ),
       profile: (
         <ProfilePanel
           profileMode="seller"
@@ -352,6 +382,7 @@ export default function AuthenticatedHome() {
           onOpenProductDetail={handleOpenProductDetail}
           onProductChanged={handleProductChanged}
           onSwitchToBuyerMode={handleSwitchToBuyerMode}
+          onNavigationStateChange={(isNested) => updateNestedTabState('profile', isNested)}
         />
       ),
     };
@@ -415,7 +446,7 @@ export default function AuthenticatedHome() {
                   <TabIcon
                     icon={getTabIconName(tab, isActive)}
                     color={color}
-                    showBadge={shouldShowBadge(tab)}
+                    badgeCount={getBadgeCount(tab)}
                   />
                 </Pressable>
               );
@@ -462,21 +493,34 @@ const styles = StyleSheet.create({
     opacity: 0.7,
   },
   iconWrap: {
-    width: ICON_SIZE,
-    height: ICON_SIZE,
+    width: ICON_SIZE + 8,
+    height: ICON_SIZE + 4,
     alignItems: 'center',
     justifyContent: 'center',
     position: 'relative',
   },
   badge: {
     position: 'absolute',
-    top: -1,
-    right: -2,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    top: -4,
+    right: -6,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    paddingHorizontal: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
     backgroundColor: '#ef4444',
     borderWidth: 1.5,
     borderColor: '#ffffff',
+  },
+  badgeWide: {
+    minWidth: 22,
+    right: -10,
+  },
+  badgeText: {
+    color: '#ffffff',
+    fontSize: 10,
+    fontWeight: '800',
+    lineHeight: 12,
   },
 });

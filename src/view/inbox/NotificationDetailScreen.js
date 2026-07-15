@@ -1,6 +1,8 @@
+import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import CircularBackButton from '../shared/components/CircularBackButton';
+import { markNotificationReadOnBackend } from '../../api/notificationApi';
 
 function formatNotificationTime(value) {
   if (!value) {
@@ -30,10 +32,41 @@ function capitalizeFirstLetter(value = '') {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
-export default function NotificationDetailScreen({ notification, onBack }) {
+export default function NotificationDetailScreen({ notification, onBack, onMarkedRead }) {
+  const [isRead, setIsRead] = useState(Boolean(notification?.isRead));
   const title = capitalizeFirstLetter(notification?.title || 'Thông báo');
   const body = notification?.content || notification?.body || '';
   const createdAt = formatNotificationTime(notification?.createdAt);
+
+  useEffect(() => {
+    setIsRead(Boolean(notification?.isRead));
+  }, [notification?.id, notification?.isRead]);
+
+  useEffect(() => {
+    const id = notification?.id;
+    if (!id || notification?.isRead) {
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        await markNotificationReadOnBackend(id);
+        if (cancelled) {
+          return;
+        }
+        setIsRead(true);
+        onMarkedRead?.(id);
+      } catch {
+        // Keep unread UI if API fails; list can retry later.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [notification?.id, notification?.isRead, onMarkedRead]);
 
   return (
     <View style={styles.screen}>
@@ -52,11 +85,15 @@ export default function NotificationDetailScreen({ notification, onBack }) {
           {createdAt ? <Text style={styles.time}>{createdAt}</Text> : null}
           <View style={styles.divider} />
           <Text style={styles.body}>{body || 'Không có nội dung chi tiết.'}</Text>
-          {!notification?.isRead ? (
+          {!isRead ? (
             <View style={styles.unreadBadge}>
               <Text style={styles.unreadBadgeText}>Chưa đọc</Text>
             </View>
-          ) : null}
+          ) : (
+            <View style={styles.readBadge}>
+              <Text style={styles.readBadgeText}>Đã đọc</Text>
+            </View>
+          )}
         </View>
 
         <Pressable onPress={onBack} style={styles.backButton}>
@@ -148,6 +185,19 @@ const styles = StyleSheet.create({
   },
   unreadBadgeText: {
     color: '#dc2626',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  readBadge: {
+    alignSelf: 'flex-start',
+    marginTop: 16,
+    backgroundColor: '#ecfdf5',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  readBadgeText: {
+    color: '#0f766e',
     fontSize: 12,
     fontWeight: '800',
   },
