@@ -712,6 +712,13 @@ export default function StoreDetailScreen({
                     <Text style={styles.reviewDate}>{formatDate(review.created_at)}</Text>
                   </View>
                   <Text style={styles.reviewComment}>{review.comment}</Text>
+                  {review.imageUrl || review.image_url ? (
+                    <Image
+                      source={{ uri: review.imageUrl || review.image_url }}
+                      style={styles.reviewImage}
+                      resizeMode="cover"
+                    />
+                  ) : null}
                 </View>
               ))
             )}
@@ -1196,6 +1203,13 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#475569',
     lineHeight: 20,
+  },
+  reviewImage: {
+    marginTop: 10,
+    width: '100%',
+    height: 180,
+    borderRadius: 10,
+    backgroundColor: '#e2e8f0',
   },
   emptyText: {
     textAlign: 'center',

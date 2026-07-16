@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -34,8 +34,7 @@ import ClearableSearchField from '../shared/components/ClearableSearchField';
 
 const SEARCH_DEBOUNCE_MS = 400;
 const NEARBY_RADIUS_METERS = 5000;
-const SEARCH_SHOP_RADIUS_METERS = 10000;
-const NEARBY_STRIP_LIMIT = 12;
+const UNLIMITED_SEARCH_RADIUS = 0;
 const SEARCH_TABS = [
   { key: 'products', label: 'Sản phẩm' },
   { key: 'shops', label: 'Gian hàng' },
@@ -93,8 +92,6 @@ export default function ProductsScreen({ onNavigationStateChange, onOpenBuyerOrd
   const [shopsError, setShopsError] = useState('');
 
   const isSearching = Boolean(debouncedSearch);
-  const nearbyProducts = useMemo(() => products.slice(0, NEARBY_STRIP_LIMIT), [products]);
-
   useEffect(() => {
     onNavigationStateChange?.(Boolean(selectedProductId || selectedStoreId || showCategoriesScreen));
   }, [onNavigationStateChange, selectedProductId, selectedStoreId, showCategoriesScreen]);
@@ -241,10 +238,10 @@ export default function ProductsScreen({ onNavigationStateChange, onOpenBuyerOrd
         const rows = await discoverProductsOnBackend({
           latitude: currentLocation.latitude,
           longitude: currentLocation.longitude,
-          radiusMeters: debouncedSearch ? SEARCH_SHOP_RADIUS_METERS : NEARBY_RADIUS_METERS,
+          radiusMeters: debouncedSearch ? UNLIMITED_SEARCH_RADIUS : NEARBY_RADIUS_METERS,
           categoryId: selectedCategoryId,
           search: debouncedSearch,
-          limit: 80,
+          limit: 200,
         });
         setProducts(
           Array.isArray(rows)
@@ -281,10 +278,10 @@ export default function ProductsScreen({ onNavigationStateChange, onOpenBuyerOrd
         const result = await searchRegisteredShops({
           latitude: currentLocation.latitude,
           longitude: currentLocation.longitude,
-          radiusMeters: SEARCH_SHOP_RADIUS_METERS,
+          radiusMeters: UNLIMITED_SEARCH_RADIUS,
           shopQuery: debouncedSearch,
           identityOnly: true,
-          limit: 50,
+          limit: 200,
         });
         setShops(Array.isArray(result?.shops) ? result.shops : []);
       } catch (error) {
@@ -394,7 +391,7 @@ export default function ProductsScreen({ onNavigationStateChange, onOpenBuyerOrd
       <ClearableSearchField
         value={search}
         onChangeText={setSearch}
-        placeholder="Tìm theo tên sản phẩm hoặc gian hàng..."
+        placeholder="Tìm kiếm sản phẩm, gian hàng...."
         style={styles.searchField}
       />
 
@@ -448,7 +445,7 @@ export default function ProductsScreen({ onNavigationStateChange, onOpenBuyerOrd
                 </View>
               </View>
             ) : (
-              <View style={styles.emptyInline}>
+              <View style={[styles.emptyInline, styles.emptyInlineInset]}>
                 <Text style={styles.emptyText}>Không tìm thấy sản phẩm phù hợp.</Text>
               </View>
             )
@@ -554,13 +551,13 @@ export default function ProductsScreen({ onNavigationStateChange, onOpenBuyerOrd
               <ActivityIndicator color="#0d7377" />
               <Text style={styles.loaderText}>Đang tải sản phẩm gần bạn...</Text>
             </View>
-          ) : nearbyProducts.length > 0 ? (
+          ) : products.length > 0 ? (
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.nearbyRow}
             >
-              {nearbyProducts.map((product) => (
+              {products.map((product) => (
                 <ProductCard
                   key={`nearby-${product.id}`}
                   product={product}
@@ -593,7 +590,7 @@ export default function ProductsScreen({ onNavigationStateChange, onOpenBuyerOrd
                 ))}
               </View>
             ) : showEmptyState ? (
-              <View style={styles.emptyInline}>
+              <View style={[styles.emptyInline, styles.emptyInlineInset]}>
                 <Text style={styles.emptyText}>Chưa có sản phẩm phù hợp.</Text>
               </View>
             ) : null}
@@ -944,7 +941,11 @@ const styles = StyleSheet.create({
     fontSize: 10,
   },
   emptyInline: {
+    paddingHorizontal: 20,
     paddingVertical: 16,
+  },
+  emptyInlineInset: {
+    paddingHorizontal: 0,
   },
   emptyText: {
     fontSize: 14,

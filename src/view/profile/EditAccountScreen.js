@@ -55,13 +55,13 @@ export default function EditAccountScreen({ onBack }) {
 
   const isProfileLoading = profileStatus === 'loading';
   const displayName = profile?.fullName || user?.displayName || 'Fastmark user';
-  const avatarUrl = profileForm.photoUrl || profile?.photoUrl || user?.photoURL || '';
+  const avatarUrl = profileForm.photoUrl || profile?.photoUrl || '';
 
   useEffect(() => {
     setProfileForm({
       fullName: profile?.fullName || user?.displayName || '',
       phone: profile?.phone || '',
-      photoUrl: profile?.photoUrl || user?.photoURL || '',
+      photoUrl: profile?.photoUrl || '',
     });
   }, [profile, user]);
 

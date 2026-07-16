@@ -1,7 +1,7 @@
 const Review = require("../models/Review");
-const BuyerReview = require("../models/BuyerReview");
 const ShopProfile = require("../models/ShopProfile");
 const User = require("../models/User");
+const { refreshShopReviewStats } = require("./buyerReviewService");
 
 function createServiceError(message, statusCode = 400) {
   const error = new Error(message);
@@ -26,14 +26,6 @@ function pickShopDisplayName(shop) {
     return "";
   }
   return pickString(shop.shopName) || pickString(shop.description);
-}
-
-function extractBuyerReviewId(externalId) {
-  const normalized = pickString(externalId);
-  if (!normalized.startsWith("buyer-")) {
-    return "";
-  }
-  return normalized.slice("buyer-".length);
 }
 
 async function loadShopNameMap(storeIds) {
@@ -96,8 +88,8 @@ function toReviewerSummary(user, fallbackName = "") {
 
 async function buildReviewFilter({ search, rating, status }) {
   const filter = {
-    is_deleted: { $ne: true },
-    externalId: { $not: /^seed-admin-review/i },
+    isDeleted: { $ne: true },
+    legacyExternalId: { $not: /^seed-admin-review/i },
   };
   const normalizedRating = pickString(rating);
   const normalizedStatus = pickString(status);
@@ -108,9 +100,9 @@ async function buildReviewFilter({ search, rating, status }) {
   }
 
   if (normalizedStatus === "visible") {
-    filter.is_hidden = { $ne: true };
+    filter.isHidden = { $ne: true };
   } else if (normalizedStatus === "hidden") {
-    filter.is_hidden = true;
+    filter.isHidden = true;
   }
 
   if (!keyword) {
@@ -118,14 +110,9 @@ async function buildReviewFilter({ search, rating, status }) {
   }
 
   const regex = new RegExp(escapeRegex(keyword), "i");
-  const [matchedUsers, matchedBuyerReviews, matchedShops] = await Promise.all([
+  const [matchedUsers, matchedShops] = await Promise.all([
     User.find({
       $or: [{ UserName: regex }, { FullName: regex }, { Email: regex }],
-    })
-      .select("_id")
-      .lean(),
-    BuyerReview.find({
-      $or: [{ productName: regex }, { storeName: regex }, { comment: regex }],
     })
       .select("_id")
       .lean(),
@@ -137,60 +124,47 @@ async function buildReviewFilter({ search, rating, status }) {
   ]);
 
   const userIds = matchedUsers.map((user) => user._id);
-  const buyerExternalIds = matchedBuyerReviews.map((row) => `buyer-${row._id}`);
   const storeIds = matchedShops.flatMap((shop) =>
     [String(shop._id), shop.externalRestaurantId].filter(Boolean)
   );
 
-  const buyerReviewsByUser =
-    userIds.length > 0
-      ? await BuyerReview.find({ userId: { $in: userIds } }).select("_id").lean()
-      : [];
-  buyerReviewsByUser.forEach((row) => buyerExternalIds.push(`buyer-${row._id}`));
-
   filter.$or = [
     { comment: regex },
-    { user_name: regex },
-    ...(buyerExternalIds.length ? [{ externalId: { $in: [...new Set(buyerExternalIds)] } }] : []),
-    ...(storeIds.length ? [{ store_id: { $in: [...new Set(storeIds)] } }] : []),
+    { userName: regex },
+    { productName: regex },
+    { storeName: regex },
+    ...(userIds.length ? [{ userId: { $in: userIds } }] : []),
+    ...(storeIds.length ? [{ storeId: { $in: [...new Set(storeIds)] } }] : []),
   ];
 
   return filter;
 }
 
 async function enrichReviews(reviews) {
-  const buyerReviewIds = reviews
-    .map((review) => extractBuyerReviewId(review.externalId))
-    .filter(Boolean);
-
-  const buyerReviews = buyerReviewIds.length
-    ? await BuyerReview.find({ _id: { $in: buyerReviewIds } }).lean()
-    : [];
-  const buyerReviewById = new Map(buyerReviews.map((row) => [String(row._id), row]));
-
-  const userIds = buyerReviews.map((row) => row.userId).filter(Boolean);
+  const userIds = reviews.map((row) => row.userId).filter(Boolean);
   const users = userIds.length ? await User.find({ _id: { $in: userIds } }).lean() : [];
   const userById = new Map(users.map((user) => [String(user._id), user]));
 
-  const storeIds = reviews.map((review) => review.store_id).filter(Boolean);
+  const storeIds = reviews.map((review) => review.storeId).filter(Boolean);
   const shopNameByKey = await loadShopNameMap(storeIds);
 
   return reviews.map((review) => {
-    const buyerReview = buyerReviewById.get(extractBuyerReviewId(review.externalId));
-    const user = buyerReview?.userId ? userById.get(String(buyerReview.userId)) : null;
+    const user = review.userId ? userById.get(String(review.userId)) : null;
     const shopName =
-      pickString(buyerReview?.storeName) || resolveShopName(review.store_id, shopNameByKey);
+      pickString(review.storeName) || resolveShopName(review.storeId, shopNameByKey);
 
     return {
-      id: review.externalId,
-      reviewer: toReviewerSummary(user, review.user_name),
-      productName: pickString(buyerReview?.productName) || "—",
+      id: String(review._id),
+      legacyExternalId: pickString(review.legacyExternalId),
+      reviewer: toReviewerSummary(user, review.userName),
+      productName: pickString(review.productName) || "—",
       shopName: shopName || "—",
       rating: review.rating,
       comment: review.comment || "",
-      createdAt: review.created_at || review.createdAt || null,
-      isHidden: Boolean(review.is_hidden),
-      deletedAt: review.deleted_at || null,
+      imageUrl: review.imageUrl || "",
+      createdAt: review.CreatedAt || null,
+      isHidden: Boolean(review.isHidden),
+      deletedAt: review.deletedAt || null,
     };
   });
 }
@@ -208,7 +182,7 @@ async function listReviews({
   const filter = await buildReviewFilter({ search, rating, status });
 
   const [reviews, total] = await Promise.all([
-    Review.find(filter).sort({ created_at: -1, createdAt: -1 }).skip(skip).limit(pageSize).lean(),
+    Review.find(filter).sort({ CreatedAt: -1 }).skip(skip).limit(pageSize).lean(),
     Review.countDocuments(filter),
   ]);
 
@@ -229,44 +203,58 @@ async function listReviews({
   };
 }
 
-async function findReviewByExternalId(externalId) {
-  const review = await Review.findOne({ externalId: pickString(externalId) });
+async function findReviewByPublicId(publicId) {
+  const normalized = pickString(publicId);
+  if (!normalized) {
+    throw createServiceError("Không tìm thấy đánh giá.", 404);
+  }
+
+  const query = isStrictMongoObjectId(normalized)
+    ? { $or: [{ _id: normalized }, { legacyExternalId: normalized }] }
+    : { legacyExternalId: normalized };
+
+  const review = await Review.findOne(query);
   if (!review) {
     throw createServiceError("Không tìm thấy đánh giá.", 404);
   }
   return review;
 }
 
-async function setReviewVisibility(externalId, isHidden) {
-  const review = await findReviewByExternalId(externalId);
-  if (review.is_deleted) {
+async function setReviewVisibility(publicId, isHidden) {
+  const review = await findReviewByPublicId(publicId);
+  if (review.isDeleted) {
     throw createServiceError("Đánh giá đã bị xóa mềm.", 400);
   }
 
-  review.is_hidden = Boolean(isHidden);
+  review.isHidden = Boolean(isHidden);
+  review.UpdatedAt = new Date();
   await review.save();
+  await refreshShopReviewStats(review.storeId);
 
   const [item] = await enrichReviews([review.toObject()]);
   return item;
 }
 
-async function softDeleteReview(externalId) {
-  const review = await findReviewByExternalId(externalId);
-  if (review.is_deleted) {
+async function softDeleteReview(publicId) {
+  const review = await findReviewByPublicId(publicId);
+  if (review.isDeleted) {
     throw createServiceError("Đánh giá đã bị xóa mềm.", 400);
   }
 
   const now = new Date();
-  review.is_deleted = true;
-  review.is_hidden = true;
-  review.deleted_at = now;
+  review.isDeleted = true;
+  review.isHidden = true;
+  review.deletedAt = now;
+  review.UpdatedAt = now;
   await review.save();
+  await refreshShopReviewStats(review.storeId);
 
-  return { id: review.externalId, deletedAt: now };
+  return { id: String(review._id), deletedAt: now };
 }
 
 module.exports = {
   listReviews,
   setReviewVisibility,
   softDeleteReview,
+  findReviewByPublicId,
 };

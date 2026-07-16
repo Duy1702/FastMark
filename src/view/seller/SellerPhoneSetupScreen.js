@@ -75,17 +75,33 @@ export default function SellerPhoneSetupScreen({ onBack, onContinue, mode = 'reg
   }
 
   const isChangeMode = mode === 'change';
+  const isTransactionMode = mode === 'transaction';
 
   return (
-    <ProfileSubScreen title={isChangeMode ? 'Đổi số điện thoại' : 'Thêm số điện thoại'} onBack={onBack}>
+    <ProfileSubScreen
+      title={
+        isChangeMode
+          ? 'Đổi số điện thoại'
+          : isTransactionMode
+            ? 'Thêm số điện thoại'
+            : 'Thêm số điện thoại'
+      }
+      onBack={onBack}
+    >
       <View style={styles.card}>
         <Text style={styles.title}>
-          {isChangeMode ? 'Cập nhật số điện thoại liên hệ' : 'Cần số điện thoại để đăng ký người bán'}
+          {isChangeMode
+            ? 'Cập nhật số điện thoại liên hệ'
+            : isTransactionMode
+              ? 'Xác minh SĐT để giao dịch an toàn'
+              : 'Cần số điện thoại để đăng ký người bán'}
         </Text>
         <Text style={styles.subtitle}>
           {isChangeMode
             ? 'Nhập số mới, sau đó xác minh bằng mã OTP để cập nhật số liên hệ cửa hàng.'
-            : 'Hệ thống sẽ dùng số điện thoại này để xác minh trước khi vào form đăng ký.'}
+            : isTransactionMode
+              ? 'Số điện thoại phải chưa được dùng bởi tài khoản khác. Sau khi lưu, bạn sẽ nhận mã xác minh demo để hoàn tất.'
+              : 'Hệ thống sẽ dùng số điện thoại này để xác minh trước khi vào form đăng ký.'}
         </Text>
 
         <Text style={styles.label}>Số điện thoại</Text>

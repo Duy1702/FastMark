@@ -1,15 +1,23 @@
 const USERNAME_PATTERN = /^[a-zA-Z0-9_]+$/;
 
 export function validateLoginForm({ login, password }) {
-  if (!login?.trim() || !password) {
-    return 'Vui lòng nhập email/userName và mật khẩu.';
+  if (!login?.trim()) {
+    return { field: 'login', message: 'Vui lòng nhập email hoặc username.' };
+  }
+
+  if (!password) {
+    return { field: 'password', message: 'Vui lòng nhập mật khẩu.' };
   }
 
   if (password.length < 6) {
-    return 'Mật khẩu cần tối thiểu 6 ký tự.';
+    return { field: 'password', message: 'Mật khẩu phải có ít nhất 6 ký tự.' };
   }
 
-  return '';
+  if (password.length > 32) {
+    return { field: 'password', message: 'Mật khẩu tối đa 32 ký tự.' };
+  }
+
+  return null;
 }
 
 export function validateRegisterForm({

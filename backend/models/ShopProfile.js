@@ -30,7 +30,6 @@ const ShopProfileSchema = new mongoose.Schema({
 
   averageRating: { type: Number, default: 0 },
   followersCount: { type: Number, default: 0 },
-  totalLikes: { type: Number, default: 0 },
   totalReviews: { type: Number, default: 0 },
   totalProducts: { type: Number, default: 0 },
   soldCount: { type: Number, default: 0 },

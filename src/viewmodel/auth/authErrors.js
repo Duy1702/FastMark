@@ -27,3 +27,19 @@ export function toReadableAuthError(error) {
 
   return 'Đã có lỗi xảy ra.';
 }
+
+export function toAuthErrorPayload(error) {
+  if (!error) {
+    return { message: 'Đã có lỗi xảy ra.', field: '', code: '' };
+  }
+
+  if (typeof error === 'string') {
+    return { message: error, field: '', code: '' };
+  }
+
+  return {
+    message: toReadableAuthError(error),
+    field: error.field || '',
+    code: error.code || '',
+  };
+}

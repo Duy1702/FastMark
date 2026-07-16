@@ -1,5 +1,4 @@
 const crypto = require("crypto");
-const BuyerReview = require("../models/BuyerReview");
 const Review = require("../models/Review");
 const Reservation = require("../models/Reservation");
 const ShopProfile = require("../models/ShopProfile");
@@ -122,8 +121,9 @@ async function refreshShopReviewStats(storeId) {
   }
 
   const reviews = await Review.find({
-    store_id: normalizedStoreId,
-    is_deleted: { $ne: true },
+    storeId: normalizedStoreId,
+    isDeleted: { $ne: true },
+    isHidden: { $ne: true },
   }).lean();
 
   const total = reviews.length;
@@ -140,34 +140,14 @@ async function refreshShopReviewStats(storeId) {
   return shop;
 }
 
-async function syncPublicReview({ buyerReview, user, storeId }) {
-  const externalId = `buyer-${buyerReview._id}`;
-  const userName = pickString(user.FullName) || pickString(user.UserName) || "Khách hàng";
-
-  await Review.findOneAndUpdate(
-    { externalId },
-    {
-      $set: {
-        store_id: String(storeId),
-        user_name: userName,
-        rating: buyerReview.rating,
-        comment: buyerReview.comment || "",
-        is_hidden: false,
-        is_deleted: false,
-        created_at: buyerReview.CreatedAt || new Date(),
-      },
-    },
-    { upsert: true, new: true, setDefaultsOnInsert: true }
-  );
-
-  await refreshShopReviewStats(storeId);
-}
-
 async function listBuyerReviews(user) {
-  const rows = await BuyerReview.find({ userId: user._id })
+  const rows = await Review.find({
+    userId: user._id,
+    isDeleted: { $ne: true },
+  })
     .sort({ CreatedAt: -1 })
     .limit(100);
-  return rows.map((row) => row.toClientReview());
+  return rows.map((row) => row.toBuyerClient());
 }
 
 async function createBuyerReview(user, payload = {}) {
@@ -181,9 +161,10 @@ async function createBuyerReview(user, payload = {}) {
   const storeId = String(shop._id);
 
   if (orderCode) {
-    const existing = await BuyerReview.findOne({
+    const existing = await Review.findOne({
       userId: user._id,
       orderCode,
+      isDeleted: { $ne: true },
     });
     if (existing) {
       throw createServiceError("Bạn đã đánh giá đơn hàng này.", 409);
@@ -192,26 +173,37 @@ async function createBuyerReview(user, payload = {}) {
 
   const imageUrl = await resolveReviewImageUrl(payload.imageUrl);
   const now = new Date();
-  const review = await BuyerReview.create({
+  const userName = pickString(user.FullName) || pickString(user.UserName) || "Khách hàng";
+
+  const review = await Review.create({
     userId: user._id,
     storeId,
     storeName: pickString(payload.storeName) || pickString(shop.shopName),
     productName: pickString(payload.productName),
     orderCode,
+    userName,
     rating,
     comment: pickString(payload.comment),
     imageUrl,
+    isHidden: false,
+    isDeleted: false,
     CreatedAt: now,
     UpdatedAt: now,
   });
 
-  await syncPublicReview({ buyerReview: review, user, storeId });
+  review.legacyExternalId = `buyer-${review._id}`;
+  await review.save();
 
-  return review.toClientReview();
+  await refreshShopReviewStats(storeId);
+  return review.toBuyerClient();
 }
 
 async function updateBuyerReview(user, reviewId, payload = {}) {
-  const review = await BuyerReview.findOne({ _id: reviewId, userId: user._id });
+  const review = await Review.findOne({
+    _id: reviewId,
+    userId: user._id,
+    isDeleted: { $ne: true },
+  });
   if (!review) {
     throw createServiceError("Không tìm thấy đánh giá.", 404);
   }
@@ -222,35 +214,35 @@ async function updateBuyerReview(user, reviewId, payload = {}) {
   if (payload.comment !== undefined) {
     review.comment = pickString(payload.comment);
   }
+  if (payload.imageUrl !== undefined) {
+    review.imageUrl = await resolveReviewImageUrl(payload.imageUrl);
+  }
   review.UpdatedAt = new Date();
   await review.save();
 
-  const externalId = `buyer-${review._id}`;
-  const publicReview = await Review.findOne({ externalId });
-  if (publicReview) {
-    publicReview.rating = review.rating;
-    publicReview.comment = review.comment || "";
-    await publicReview.save();
-    await refreshShopReviewStats(review.storeId);
-  }
-
-  return review.toClientReview();
+  await refreshShopReviewStats(review.storeId);
+  return review.toBuyerClient();
 }
 
 async function deleteBuyerReview(user, reviewId) {
-  const review = await BuyerReview.findOneAndDelete({ _id: reviewId, userId: user._id });
+  const review = await Review.findOne({
+    _id: reviewId,
+    userId: user._id,
+    isDeleted: { $ne: true },
+  });
   if (!review) {
     throw createServiceError("Không tìm thấy đánh giá.", 404);
   }
 
-  const externalId = `buyer-${review._id}`;
-  await Review.findOneAndUpdate(
-    { externalId },
-    { $set: { is_deleted: true, is_hidden: true } }
-  );
-  await refreshShopReviewStats(review.storeId);
+  const now = new Date();
+  review.isDeleted = true;
+  review.isHidden = true;
+  review.deletedAt = now;
+  review.UpdatedAt = now;
+  await review.save();
 
-  return { id: review._id };
+  await refreshShopReviewStats(review.storeId);
+  return { id: String(review._id) };
 }
 
 module.exports = {
@@ -258,4 +250,5 @@ module.exports = {
   createBuyerReview,
   updateBuyerReview,
   deleteBuyerReview,
+  refreshShopReviewStats,
 };

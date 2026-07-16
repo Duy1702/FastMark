@@ -74,17 +74,31 @@ function getConversationKey(item) {
   return String(item.id || item.shop?.id || item.shopId);
 }
 
-function filterConversations(conversations, query) {
+function getConversationSearchHaystack(item, isSellerInbox = false) {
+  if (isSellerInbox) {
+    return [
+      item.buyer?.fullName,
+      item.buyer?.name,
+      item.buyer?.userName,
+      item.lastMessage,
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+  }
+
+  return [getConversationName(item), item.lastMessage].filter(Boolean).join(' ').toLowerCase();
+}
+
+function filterConversations(conversations, query, isSellerInbox = false) {
   const keyword = query.trim().toLowerCase();
   if (!keyword) {
     return conversations;
   }
 
-  return conversations.filter((item) => {
-    const name = getConversationName(item).toLowerCase();
-    const preview = String(item.lastMessage || '').toLowerCase();
-    return name.includes(keyword) || preview.includes(keyword);
-  });
+  return conversations.filter((item) =>
+    getConversationSearchHaystack(item, isSellerInbox).includes(keyword)
+  );
 }
 
 function hasRealMessage(conversation) {
@@ -151,7 +165,8 @@ export default function InboxScreen({
     setNotificationError('');
 
     try {
-      const items = await getMyNotificationsOnBackend();
+      // Tab thông báo trong inbox buyer luôn lấy audience buyer (không lẫn shop).
+      const items = await getMyNotificationsOnBackend('buyer');
       setNotifications(Array.isArray(items) ? items : []);
     } catch (error) {
       setNotifications([]);
@@ -191,13 +206,14 @@ export default function InboxScreen({
   }, [onNavigationStateChange, selectedChat]);
 
   const messageConversations = useMemo(() => {
-    return filterConversations(conversations, searchQuery);
-  }, [conversations, searchQuery]);
+    return filterConversations(conversations, searchQuery, showSellerInbox);
+  }, [conversations, searchQuery, showSellerInbox]);
 
   if (selectedNotification) {
     return (
       <NotificationDetailScreen
         notification={selectedNotification}
+        audience="buyer"
         onBack={() => {
           setSelectedNotification(null);
           loadNotifications();
@@ -275,13 +291,16 @@ export default function InboxScreen({
         </View>
       ) : null}
 
-      {(buyerView || listTab === 'messages') && !showSellerInbox ? (
-        <ClearableSearchField
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-          placeholder="Tìm kiếm cuộc trò chuyện..."
-          style={styles.searchField}
-        />
+      {(buyerView || listTab === 'messages') ? (
+        <View style={styles.searchBar}>
+          <ClearableSearchField
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholder={
+              showSellerInbox ? 'Tìm theo tên khách, tin nhắn...' : 'Tìm kiếm cuộc trò chuyện...'
+            }
+          />
+        </View>
       ) : null}
 
       {loadError ? <Text style={styles.errorText}>{loadError}</Text> : null}
@@ -306,9 +325,13 @@ export default function InboxScreen({
               <View style={styles.emptyBox}>
                 <Text style={styles.emptyIcon}>💬</Text>
                 <Text style={styles.emptyTitle}>
-                  {showSellerInbox ? 'Chưa có tin nhắn' : 'Chưa có cuộc trò chuyện'}
+                  {searchQuery.trim()
+                    ? 'Không tìm thấy cuộc trò chuyện'
+                    : showSellerInbox
+                      ? 'Chưa có tin nhắn'
+                      : 'Chưa có cuộc trò chuyện'}
                 </Text>
-                {!showSellerInbox ? (
+                {!showSellerInbox && !searchQuery.trim() ? (
                   <Text style={styles.emptySubtitle}>
                     Khi bạn nhắn tin với gian hàng, hội thoại sẽ hiện ở đây.
                   </Text>
@@ -452,9 +475,10 @@ const styles = StyleSheet.create({
   tabItemActive: { backgroundColor: '#e8f3f1' },
   tabText: { fontWeight: '700', color: '#64748b' },
   tabTextActive: { color: '#0d7377' },
-  searchField: {
-    marginHorizontal: 16,
-    marginBottom: 12,
+  searchBar: {
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 12,
   },
   listContent: { paddingHorizontal: 16, paddingBottom: 32 },
   listItem: {

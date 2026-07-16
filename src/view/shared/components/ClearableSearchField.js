@@ -27,6 +27,7 @@ export default function ClearableSearchField({
         onSubmitEditing={onSubmitEditing}
         autoCapitalize={autoCapitalize}
         autoCorrect={autoCorrect}
+        clearButtonMode="never"
       />
       {hasValue ? (
         <Pressable
@@ -45,6 +46,7 @@ export default function ClearableSearchField({
 
 const styles = StyleSheet.create({
   searchWrap: {
+    alignSelf: 'stretch',
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#ffffff',
@@ -52,15 +54,18 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#e5e7eb',
     paddingHorizontal: 12,
+    minHeight: 48,
   },
   searchIcon: {
     marginRight: 8,
   },
   searchInput: {
     flex: 1,
+    minWidth: 0,
     fontSize: 15,
     color: '#1f2937',
-    paddingVertical: 12,
+    paddingVertical: 10,
+    margin: 0,
   },
   clearButton: {
     marginLeft: 6,

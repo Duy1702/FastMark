@@ -309,7 +309,9 @@ async function getAccountStats(user, shop) {
       : Promise.resolve(0),
     shopId ? Reservation.countDocuments({ shopId }) : Promise.resolve(0),
     Report.countDocuments({ targetUserId: userId }),
-    shopId ? Review.countDocuments({ store_id: String(shopId) }) : Promise.resolve(0),
+    shopId
+      ? Review.countDocuments({ storeId: String(shopId), isDeleted: { $ne: true } })
+      : Promise.resolve(0),
   ]);
 
   return {

@@ -10,6 +10,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useDispatch } from 'react-redux';
 import {
   deleteProductOnBackend,
@@ -20,6 +21,8 @@ import {
 import { getCurrentUserIdToken } from '../../repository/authRepository';
 import { syncSellerAccess } from '../../viewmodel/auth/authSlice';
 import { formatPrice, formatPriceRange } from '../../core/utils/productFormat';
+import { useScreenInsets } from '../../hooks/useScreenInsets';
+import CircularBackButton from '../shared/components/CircularBackButton';
 import {
   CategoryCombobox,
   ThumbnailField,
@@ -43,6 +46,7 @@ function createVariantFromApi(variant) {
 
 export default function SellerProductDetailScreen({ productId, onBack, onChanged }) {
   const dispatch = useDispatch();
+  const insets = useScreenInsets();
   const [product, setProduct] = useState(null);
   const [categories, setCategories] = useState([]);
   const [isEditing, setIsEditing] = useState(false);
@@ -206,54 +210,72 @@ export default function SellerProductDetailScreen({ productId, onBack, onChanged
     );
   }
 
-  function renderVariantImage(image, variant) {
-    const outOfStock = Number(variant.quantity) <= 0;
+  function getVariantThumb(variant) {
+    const firstImage = (variant.images || [])[0];
+    return firstImage?.imageUrl || product?.thumbnail || '';
+  }
 
+  const headerTitle = isEditing ? 'Chỉnh sửa sản phẩm' : 'Chi tiết sản phẩm';
+
+  function renderTopBar({ showEdit = false } = {}) {
     return (
-      <View key={image.id} style={styles.variantImageWrap}>
-        <Image
-          source={{ uri: image.imageUrl }}
-          style={[styles.variantImage, outOfStock && styles.dimmedImage]}
-        />
-        {outOfStock ? (
-          <View style={styles.variantOutOfStockOverlay}>
-            <Text style={styles.outOfStockText}>Hết hàng</Text>
-          </View>
-        ) : null}
+      <View style={[styles.topBar, { paddingTop: insets.contentPaddingTop }]}>
+        <CircularBackButton onPress={onBack} variant="plain" style={styles.headerIconButton} />
+        <Text style={styles.topTitle} numberOfLines={1}>
+          {headerTitle}
+        </Text>
+        {showEdit ? (
+          <Pressable
+            onPress={() => (isEditing ? handleCancelEdit() : setIsEditing(true))}
+            accessibilityRole="button"
+            accessibilityLabel={isEditing ? 'Hủy sửa' : 'Sửa sản phẩm'}
+            style={({ pressed }) => [
+              styles.headerIconButton,
+              styles.headerActionButton,
+              pressed && styles.headerActionPressed,
+            ]}
+          >
+            <Ionicons
+              name={isEditing ? 'close' : 'create-outline'}
+              size={18}
+              color="#0f172a"
+            />
+          </Pressable>
+        ) : (
+          <View style={styles.headerSpacer} />
+        )}
       </View>
     );
   }
 
   if (isLoading) {
     return (
-      <View style={styles.centered}>
-        <ActivityIndicator color="#0d7377" size="large" />
+      <View style={styles.screen}>
+        {renderTopBar()}
+        <View style={styles.centered}>
+          <ActivityIndicator color="#0d7377" size="large" />
+        </View>
       </View>
     );
   }
 
   if (!product) {
     return (
-      <View style={styles.centered}>
-        <Text style={styles.errorText}>{error || 'Không tìm thấy sản phẩm.'}</Text>
-        <Pressable onPress={onBack} style={formStyles.addVariantButton}>
-          <Text style={formStyles.addVariantText}>Quay lại</Text>
-        </Pressable>
+      <View style={styles.screen}>
+        {renderTopBar()}
+        <View style={styles.centered}>
+          <Text style={styles.errorText}>{error || 'Không tìm thấy sản phẩm.'}</Text>
+          <Pressable onPress={onBack} style={formStyles.addVariantButton}>
+            <Text style={formStyles.addVariantText}>Quay lại</Text>
+          </Pressable>
+        </View>
       </View>
     );
   }
 
   return (
     <View style={styles.screen}>
-      <View style={styles.topBar}>
-        <Pressable onPress={onBack}>
-          <Text style={styles.backText}>← Quay lại</Text>
-        </Pressable>
-        <Text style={styles.topTitle}>{isEditing ? 'Chỉnh sửa sản phẩm' : 'Chi tiết sản phẩm'}</Text>
-        <Pressable onPress={() => (isEditing ? handleCancelEdit() : setIsEditing(true))}>
-          <Text style={styles.editText}>{isEditing ? 'Hủy sửa' : 'Sửa'}</Text>
-        </Pressable>
-      </View>
+      {renderTopBar({ showEdit: true })}
 
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         {error ? <Text style={styles.errorBanner}>{error}</Text> : null}
@@ -303,18 +325,57 @@ export default function SellerProductDetailScreen({ productId, onBack, onChanged
               </View>
             </View>
 
-            <Text style={styles.sectionTitle}>Biến thể</Text>
-            {product.variants?.map((variant) => (
-              <View key={variant.id} style={styles.variantViewCard}>
-                <Text style={styles.variantName}>{variant.variantName}</Text>
-                <Text style={styles.variantMeta}>
-                  {formatPrice(variant.price)} • SL: {variant.quantity}
-                </Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                  {(variant.images || []).map((image) => renderVariantImage(image, variant))}
-                </ScrollView>
-              </View>
-            ))}
+            <Text style={styles.sectionTitle}>Phân loại sản phẩm</Text>
+            <View style={styles.variantGrid}>
+              {(product.variants || []).map((variant) => {
+                const stockLeft = Math.max(
+                  0,
+                  Number(variant.quantity ?? variant.Quantity) || 0
+                );
+                const outOfStock = stockLeft <= 0;
+                const thumb = getVariantThumb(variant);
+
+                return (
+                  <View
+                    key={variant.id}
+                    style={[styles.variantTile, outOfStock && styles.variantTileDisabled]}
+                  >
+                    <View style={styles.variantThumbWrap} collapsable={false}>
+                      {thumb ? (
+                        <Image source={{ uri: thumb }} style={styles.variantThumb} />
+                      ) : (
+                        <View style={styles.variantThumbFallback}>
+                          <Text style={styles.variantThumbEmoji}>📦</Text>
+                        </View>
+                      )}
+                      {outOfStock ? (
+                        <View style={styles.variantSoldOutMask} pointerEvents="none">
+                          <Text style={styles.variantSoldOutText}>Hết hàng</Text>
+                        </View>
+                      ) : null}
+                    </View>
+                    <Text
+                      style={[
+                        styles.variantTileName,
+                        outOfStock && styles.variantTileNameDisabled,
+                      ]}
+                      numberOfLines={2}
+                    >
+                      {variant.variantName || 'Loại'}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.variantTileMeta,
+                        outOfStock && styles.variantTileNameDisabled,
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {formatPrice(variant.price)} · SL {stockLeft}
+                    </Text>
+                  </View>
+                );
+              })}
+            </View>
 
             <Pressable onPress={handleDelete} style={styles.dangerButton}>
               <Text style={styles.dangerButtonText}>Xóa sản phẩm</Text>
@@ -408,19 +469,40 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#f4f7f6' },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, gap: 12 },
   topBar: {
-    paddingTop: 12,
     paddingHorizontal: 16,
-    paddingBottom: 12,
+    paddingBottom: 14,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    gap: 8,
     backgroundColor: '#ffffff',
     borderBottomWidth: 1,
     borderBottomColor: '#e5e7eb',
   },
-  topTitle: { fontSize: 16, fontWeight: '800', color: '#0f172a' },
-  backText: { color: '#0d7377', fontWeight: '700' },
-  editText: { color: '#0d7377', fontWeight: '800' },
+  topTitle: {
+    flex: 1,
+    fontSize: 20,
+    fontWeight: '900',
+    color: '#0f172a',
+  },
+  headerIconButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    backgroundColor: '#ffffff',
+  },
+  headerActionButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerActionPressed: {
+    opacity: 0.72,
+  },
+  headerSpacer: {
+    width: 36,
+    height: 36,
+  },
   content: { padding: 16, paddingBottom: 32, gap: 12 },
   heroImage: { width: '100%', height: 220, borderRadius: 16, backgroundColor: '#e2e8f0' },
   detailCard: {
@@ -463,41 +545,79 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginBottom: 4,
   },
-  variantViewCard: {
-    backgroundColor: '#ffffff',
-    borderRadius: 14,
-    padding: 12,
+  variantGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  variantTile: {
+    width: '31%',
+    backgroundColor: '#f8fafc',
+    borderRadius: 10,
+    padding: 6,
     borderWidth: 1,
     borderColor: '#e2e8f0',
-    gap: 8,
   },
-  variantName: { fontSize: 15, fontWeight: '800', color: '#0f172a' },
-  variantMeta: { color: '#64748b', fontWeight: '600' },
-  variantImageWrap: {
+  variantTileDisabled: {
+    opacity: 1,
+    borderColor: '#e2e8f0',
+  },
+  variantThumbWrap: {
     position: 'relative',
-    marginRight: 8,
-  },
-  variantImage: {
-    width: 84,
-    height: 84,
-    borderRadius: 10,
+    width: '100%',
+    height: 78,
+    borderRadius: 8,
     backgroundColor: '#e2e8f0',
+    overflow: 'hidden',
+    marginBottom: 6,
   },
-  variantOutOfStockOverlay: {
-    ...StyleSheet.absoluteFillObject,
+  variantThumb: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+  variantThumbFallback: {
+    width: '100%',
+    height: '100%',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(15, 23, 42, 0.42)',
-    borderRadius: 10,
   },
-  dimmedImage: {
-    opacity: 0.45,
+  variantThumbEmoji: {
+    fontSize: 28,
   },
-  outOfStockText: {
+  variantSoldOutMask: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    zIndex: 2,
+    elevation: 2,
+    backgroundColor: 'rgba(0, 0, 0, 0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  variantSoldOutText: {
     color: '#ffffff',
-    fontSize: 11,
-    fontWeight: '900',
+    fontSize: 12,
+    fontWeight: '800',
     textAlign: 'center',
+  },
+  variantTileName: {
+    color: '#0f172a',
+    fontSize: 12,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  variantTileNameDisabled: {
+    color: '#94a3b8',
+  },
+  variantTileMeta: {
+    color: '#64748b',
+    fontSize: 11,
+    fontWeight: '600',
+    textAlign: 'center',
+    marginTop: 2,
   },
   dangerButton: {
     minHeight: 48,

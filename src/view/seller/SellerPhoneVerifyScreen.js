@@ -25,7 +25,13 @@ function formatCountdown(secondsLeft) {
   return `${minutes}:${String(seconds).padStart(2, '0')}`;
 }
 
-export default function SellerPhoneVerifyScreen({ phone, onBack, onVerified, onNeedPhone }) {
+export default function SellerPhoneVerifyScreen({
+  phone,
+  onBack,
+  onVerified,
+  onNeedPhone,
+  mode = 'register',
+}) {
   const dispatch = useDispatch();
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
@@ -33,6 +39,7 @@ export default function SellerPhoneVerifyScreen({ phone, onBack, onVerified, onN
   const [isRequesting, setIsRequesting] = useState(true);
   const [verification, setVerification] = useState(null);
   const [secondsLeft, setSecondsLeft] = useState(0);
+  const isTransactionMode = mode === 'transaction';
 
   const expiresAtMs = useMemo(() => {
     if (!verification?.expiresAt) {
@@ -173,9 +180,13 @@ export default function SellerPhoneVerifyScreen({ phone, onBack, onVerified, onN
   return (
     <ProfileSubScreen title="Xác minh số điện thoại" onBack={onBack}>
       <View style={styles.card}>
-        <Text style={styles.title}>Nhập mã xác minh</Text>
+        <Text style={styles.title}>
+          {isTransactionMode ? 'Xác minh SĐT trước khi giao dịch' : 'Nhập mã xác minh'}
+        </Text>
         <Text style={styles.subtitle}>
-          Hệ thống chưa gửi SMS. Mã xác minh hiển thị bên dưới — nhập đúng mã để xác minh số điện thoại.
+          {isTransactionMode
+            ? 'Deal giá và giữ hàng cần số điện thoại đã xác minh để giao dịch an toàn. Hệ thống chưa gửi SMS — dùng mã demo bên dưới.'
+            : 'Hệ thống chưa gửi SMS. Mã xác minh hiển thị bên dưới — nhập đúng mã để xác minh số điện thoại.'}
         </Text>
 
         <View style={styles.phoneBox}>

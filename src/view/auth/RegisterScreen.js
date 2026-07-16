@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+﻿import { useEffect, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -17,9 +17,9 @@ import {
   selectAuthSuccessMessage,
 } from '../../viewmodel/auth/authSelectors';
 import { clearAuthFeedback, registerUser } from '../../viewmodel/auth/authSlice';
+import { checkRegisterAvailabilityOnBackend } from '../../api/authBackendApi';
 import { validateRegisterForm } from '../../viewmodel/auth/authFormValidation';
 import { getGoogleAuthSetupError } from '../../viewmodel/auth/googleAuthConfig';
-import AuthBrand from './components/AuthBrand';
 import CircularBackButton from '../shared/components/CircularBackButton';
 import AuthDivider from './components/AuthDivider';
 import AuthInput from './components/AuthInput';
@@ -40,6 +40,7 @@ export default function RegisterScreen({ onGoLogin, onGoBack }) {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [localError, setLocalError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState({});
 
   const isLoading = actionStatus === 'loading';
   const isDisabled = isLoading || Boolean(configError);
@@ -50,7 +51,118 @@ export default function RegisterScreen({ onGoLogin, onGoBack }) {
     dispatch(clearAuthFeedback());
   }, [dispatch]);
 
-  function handleSubmit() {
+  function setFieldError(field, message) {
+    setFieldErrors((current) => ({ ...current, [field]: message }));
+  }
+
+  function validateFullNameField() {
+    const value = fullName.trim();
+    if (!value) {
+      setFieldError('fullName', 'Vui lòng nhập họ và tên.');
+      return false;
+    }
+    if (value.length < 2 || value.length > 50) {
+      setFieldError('fullName', 'Họ tên phải từ 2 đến 50 ký tự.');
+      return false;
+    }
+    setFieldError('fullName', '');
+    return true;
+  }
+
+  async function validateUserNameField() {
+    const value = userName.trim();
+    if (!value) {
+      setFieldError('userName', 'Vui lòng nhập username.');
+      return false;
+    }
+    if (value.length < 3 || value.length > 20) {
+      setFieldError('userName', 'Username phải từ 3 đến 20 ký tự.');
+      return false;
+    }
+    if (!/^[a-zA-Z0-9_]+$/.test(value)) {
+      setFieldError('userName', 'Username chỉ được dùng chữ, số và dấu gạch dưới.');
+      return false;
+    }
+
+    try {
+      const { userNameTaken } = await checkRegisterAvailabilityOnBackend({ userName: value });
+      if (userNameTaken) {
+        setFieldError('userName', 'Username này đã tồn tại.');
+        return false;
+      }
+    } catch {
+      // Không chặn khi API check lỗi; đăng ký sẽ kiểm tra lại phía server.
+    }
+    setFieldError('userName', '');
+    return true;
+  }
+
+  async function validateEmailField() {
+    const value = email.trim();
+    if (!value) {
+      setFieldError('email', 'Vui lòng nhập email.');
+      return false;
+    }
+    if (value.length < 6 || value.length > 100) {
+      setFieldError('email', 'Email phải từ 6 đến 100 ký tự.');
+      return false;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+      setFieldError('email', 'Email không hợp lệ.');
+      return false;
+    }
+
+    try {
+      const { emailTaken } = await checkRegisterAvailabilityOnBackend({ email: value });
+      if (emailTaken) {
+        setFieldError('email', 'Email này đã được sử dụng.');
+        return false;
+      }
+    } catch {
+      // Không chặn khi API check lỗi; đăng ký sẽ kiểm tra lại phía server.
+    }
+    setFieldError('email', '');
+    return true;
+  }
+
+  function validatePasswordField() {
+    if (!password) {
+      setFieldError('password', 'Vui lòng nhập mật khẩu.');
+      return false;
+    }
+    if (password.length < 6 || password.length > 32) {
+      setFieldError('password', 'Mật khẩu phải từ 6 đến 32 ký tự.');
+      return false;
+    }
+    setFieldError('password', '');
+    return true;
+  }
+
+  function validateConfirmPasswordField() {
+    if (!confirmPassword) {
+      setFieldError('confirmPassword', 'Vui lòng nhập lại mật khẩu.');
+      return false;
+    }
+    if (confirmPassword !== password) {
+      setFieldError('confirmPassword', 'Mật khẩu xác nhận chưa khớp.');
+      return false;
+    }
+    setFieldError('confirmPassword', '');
+    return true;
+  }
+
+  async function handleSubmit() {
+    const checks = [
+      validateFullNameField(),
+      validatePasswordField(),
+      validateConfirmPasswordField(),
+      await validateUserNameField(),
+      await validateEmailField(),
+    ];
+    if (checks.some((ok) => !ok)) {
+      return;
+    }
+
     const validationError = validateRegisterForm({
       fullName,
       email,
@@ -86,82 +198,88 @@ export default function RegisterScreen({ onGoLogin, onGoBack }) {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        <CircularBackButton
-          onPress={onGoBack}
-          variant="surface"
-          size={40}
-          style={styles.backButton}
-        />
-
-        <AuthBrand title="FastMark" subtitle="Tạo tài khoản mới" />
+        <View style={styles.headerRow}>
+          <CircularBackButton
+            onPress={onGoBack}
+            variant="surface"
+            size={40}
+            style={styles.backButton}
+          />
+          <Text style={styles.headerTitle}>Đăng ký tài khoản mới</Text>
+        </View>
 
         <View style={styles.card}>
           <AuthInput
             label="Họ và tên"
-            icon="👤"
             value={fullName}
             onChangeText={(value) => {
               setFullName(value);
               setLocalError('');
+              setFieldError('fullName', '');
             }}
+            onBlur={validateFullNameField}
+            error={fieldErrors.fullName}
             autoCapitalize="words"
             autoComplete="name"
-            placeholder="Nguyễn Văn A"
           />
 
           <AuthInput
-            label="Email"
-            icon="✉️"
-            value={email}
-            onChangeText={(value) => {
-              setEmail(value);
-              setLocalError('');
-            }}
-            keyboardType="email-address"
-            autoCapitalize="none"
-            autoComplete="email"
-            placeholder="example@gmail.com"
-          />
-
-          <AuthInput
-            label="Tên đăng nhập"
-            icon="🪪"
+            label="Username"
             value={userName}
             onChangeText={(value) => {
               setUserName(value);
               setLocalError('');
+              setFieldError('userName', '');
             }}
+            onBlur={validateUserNameField}
+            error={fieldErrors.userName}
             autoCapitalize="none"
             autoComplete="username"
-            placeholder="nguyenvana"
+          />
+
+          <AuthInput
+            label="Email"
+            value={email}
+            onChangeText={(value) => {
+              setEmail(value);
+              setLocalError('');
+              setFieldError('email', '');
+            }}
+            onBlur={validateEmailField}
+            error={fieldErrors.email}
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoComplete="email"
           />
 
           <AuthInput
             label="Mật khẩu"
-            icon="🔒"
             value={password}
             onChangeText={(value) => {
               setPassword(value);
               setLocalError('');
+              setFieldError('password', '');
             }}
+            onBlur={validatePasswordField}
+            error={fieldErrors.password}
             secureTextEntry
             autoCapitalize="none"
             autoComplete="new-password"
-            placeholder="Tối thiểu 6 ký tự"
           />
 
           <AuthInput
             label="Xác nhận mật khẩu"
-            icon="🔒"
             value={confirmPassword}
             onChangeText={(value) => {
               setConfirmPassword(value);
               setLocalError('');
+              setFieldError('confirmPassword', '');
             }}
+            onBlur={validateConfirmPasswordField}
+            error={fieldErrors.confirmPassword}
             secureTextEntry
             autoCapitalize="none"
             autoComplete="new-password"
-            placeholder="Nhập lại mật khẩu"
           />
 
           <Pressable
@@ -213,12 +331,6 @@ export default function RegisterScreen({ onGoLogin, onGoBack }) {
 
           <GoogleSignInButton disabled={isLoading} onError={setLocalError} />
         </View>
-
-        <Pressable onPress={onGoLogin} style={styles.footerLinkWrap}>
-          <Text style={styles.footerText}>
-            Đã có tài khoản? <Text style={styles.footerLink}>Đăng nhập</Text>
-          </Text>
-        </Pressable>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -235,23 +347,24 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingBottom: 36,
   },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 20,
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: '900',
+    color: AUTH_COLORS.text,
+  },
   backButton: {
-    marginBottom: 8,
     borderWidth: 1,
     borderColor: AUTH_COLORS.border,
     backgroundColor: '#ffffff',
   },
   card: {
-    backgroundColor: AUTH_COLORS.card,
-    borderRadius: AUTH_RADIUS.card,
-    padding: 22,
-    borderWidth: 1,
-    borderColor: '#eef2f2',
-    shadowColor: '#0f172a',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.08,
-    shadowRadius: 24,
-    elevation: 6,
+    paddingVertical: 8,
   },
   termsRow: {
     flexDirection: 'row',

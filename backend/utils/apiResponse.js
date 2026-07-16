@@ -8,11 +8,18 @@ function success(res, { status = 200, message = "Success", data = null } = {}) {
   return res.status(status).json(payload);
 }
 
-function fail(res, { status = 500, message = "Đã có lỗi xảy ra." } = {}) {
-  return res.status(status).json({
+function fail(res, { status = 500, message = "Đã có lỗi xảy ra.", code = "", field = "" } = {}) {
+  const payload = {
     success: false,
     message,
-  });
+  };
+  if (code) {
+    payload.code = code;
+  }
+  if (field) {
+    payload.field = field;
+  }
+  return res.status(status).json(payload);
 }
 
 module.exports = {

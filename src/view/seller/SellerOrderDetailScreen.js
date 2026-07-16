@@ -1,8 +1,16 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Alert,
+  Image,
+  Linking,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { getCurrentUserIdToken } from '../../repository/authRepository';
 import {
-  cancelSellerReservationOnBackend,
   completeSellerReservationOnBackend,
   confirmSellerReservationOnBackend,
   getSellerReservationDetailOnBackend,
@@ -10,6 +18,7 @@ import {
 } from '../../api/sellerOpsApi';
 import { RESERVATION_STATUS } from '../../constants/sellerOrders';
 import { formatPrice } from '../../core/utils/productFormat';
+import AvatarBadge from '../shared/components/AvatarBadge';
 import ProfileSubScreen from '../profile/ProfileSubScreen';
 
 export default function SellerOrderDetailScreen({ reservationId, onBack, onChanged }) {
@@ -44,9 +53,11 @@ export default function SellerOrderDetailScreen({ reservationId, onBack, onChang
       if (action === 'confirm') {
         updated = await confirmSellerReservationOnBackend(idToken, reservationId);
       } else if (action === 'reject') {
-        updated = await rejectSellerReservationOnBackend({ idToken, reservationId, reason: 'Shop từ chối' });
-      } else if (action === 'cancel') {
-        updated = await cancelSellerReservationOnBackend({ idToken, reservationId, reason: 'Shop hủy' });
+        updated = await rejectSellerReservationOnBackend({
+          idToken,
+          reservationId,
+          reason: 'Shop hủy',
+        });
       } else if (action === 'complete') {
         updated = await completeSellerReservationOnBackend(idToken, reservationId);
       }
@@ -88,17 +99,20 @@ export default function SellerOrderDetailScreen({ reservationId, onBack, onChang
 
   const canConfirm = reservation.status === RESERVATION_STATUS.PENDING;
   const canComplete = reservation.status === RESERVATION_STATUS.CONFIRMED;
-  const canCancel =
-    reservation.status === RESERVATION_STATUS.PENDING ||
-    reservation.status === RESERVATION_STATUS.CONFIRMED;
+  const buyerName = reservation.buyer?.fullName || 'Khách';
 
   return (
     <ProfileSubScreen title="Chi tiết đơn giữ hàng" onBack={onBack}>
       <View style={styles.card}>
         <Text style={styles.sectionTitle}>Người mua</Text>
-        <Text style={styles.value}>{reservation.buyer?.fullName || 'N/A'}</Text>
-        <Text style={styles.meta}>@{reservation.buyer?.userName || '—'}</Text>
-        <Text style={styles.meta}>SĐT: {reservation.buyer?.phone || 'Chưa có'}</Text>
+        <View style={styles.buyerRow}>
+          <AvatarBadge name={buyerName} uri={reservation.buyer?.avatar || ''} size={56} />
+          <View style={styles.buyerInfo}>
+            <Text style={styles.value}>{buyerName}</Text>
+            <Text style={styles.meta}>@{reservation.buyer?.userName || '—'}</Text>
+            <Text style={styles.meta}>SĐT: {reservation.buyer?.phone || 'Chưa có'}</Text>
+          </View>
+        </View>
         <Pressable onPress={handleCallBuyer} style={styles.callButton}>
           <Text style={styles.callButtonText}>📞 Gọi khách</Text>
         </Pressable>
@@ -106,10 +120,28 @@ export default function SellerOrderDetailScreen({ reservationId, onBack, onChang
 
       <View style={styles.card}>
         <Text style={styles.sectionTitle}>Sản phẩm</Text>
-        <Text style={styles.value}>{reservation.product?.productName}</Text>
-        <Text style={styles.meta}>{reservation.variant?.variantName}</Text>
-        <Text style={styles.meta}>Số lượng: {reservation.quantity}</Text>
-        <Text style={styles.price}>Tổng tiền: {formatPrice(reservation.totalAmount)}</Text>
+        <View style={styles.productRow}>
+          <View style={styles.productThumbWrap}>
+            {reservation.product?.thumbnail ? (
+              <Image
+                source={{ uri: reservation.product.thumbnail }}
+                style={styles.productThumb}
+              />
+            ) : (
+              <Text style={styles.productThumbEmoji}>📦</Text>
+            )}
+          </View>
+          <View style={styles.productInfo}>
+            <Text style={styles.value} numberOfLines={2}>
+              {reservation.product?.productName || 'Sản phẩm'}
+            </Text>
+            {reservation.variant?.variantName ? (
+              <Text style={styles.meta}>{reservation.variant.variantName}</Text>
+            ) : null}
+            <Text style={styles.meta}>Số lượng: {reservation.quantity}</Text>
+            <Text style={styles.price}>Tổng tiền: {formatPrice(reservation.totalAmount)}</Text>
+          </View>
+        </View>
         {reservation.pickupTime ? (
           <Text style={styles.meta}>
             Giờ lấy hàng: {new Date(reservation.pickupTime).toLocaleString('vi-VN')}
@@ -152,15 +184,6 @@ export default function SellerOrderDetailScreen({ reservationId, onBack, onChang
             <Text style={styles.primaryBtnText}>Khách đã nhận hàng</Text>
           </Pressable>
         ) : null}
-        {canCancel ? (
-          <Pressable
-            disabled={isActing}
-            onPress={() => runAction('cancel')}
-            style={styles.dangerBtn}
-          >
-            <Text style={styles.dangerBtnText}>Hủy đơn</Text>
-          </Pressable>
-        ) : null}
       </View>
     </ProfileSubScreen>
   );
@@ -178,9 +201,44 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   sectionTitle: { fontSize: 14, fontWeight: '800', color: '#0f172a', marginBottom: 4 },
+  buyerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  buyerInfo: {
+    flex: 1,
+    gap: 2,
+  },
+  productRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+  },
+  productThumbWrap: {
+    width: 72,
+    height: 72,
+    borderRadius: 12,
+    backgroundColor: '#f1f5f9',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  productThumb: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+  productThumbEmoji: {
+    fontSize: 28,
+  },
+  productInfo: {
+    flex: 1,
+    gap: 2,
+  },
   value: { fontSize: 16, fontWeight: '800', color: '#0f172a' },
   meta: { color: '#64748b', fontSize: 13, lineHeight: 20 },
-  price: { color: '#0d7377', fontWeight: '900', fontSize: 16, marginTop: 6 },
+  price: { color: '#0d7377', fontWeight: '900', fontSize: 15, marginTop: 4 },
   lockHint: { color: '#b45309', fontSize: 12, fontWeight: '700', marginTop: 8 },
   callButton: {
     marginTop: 10,

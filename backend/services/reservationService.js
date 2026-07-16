@@ -8,11 +8,15 @@ const {
   RESERVATION_STATUS,
   BUYER_CANCEL_LOCK_MINUTES,
 } = require("../constants/reservationStatus");
-const { DEAL_OFFER_STATUS } = require("../constants/dealOfferStatus");
+const { DEAL_OFFER_STATUS, DEAL_OFFER_BY } = require("../constants/dealOfferStatus");
 const { createNotification } = require("./notificationService");
+const { NOTIFICATION_AUDIENCE } = require("../constants/notificationAudience");
 const { getShopForSeller } = require("./shopSettingsService");
 
-const NO_SHOW_CANCEL_REASON = "Người dùng không đến lấy hàng";
+const NO_SHOW_CANCEL_REASON = "Người mua không đến lấy hàng";
+const SHOP_UNCONFIRMED_CANCEL_REASON = "Do shop chưa xác nhận đơn hàng";
+const SHOP_CANCEL_REASON = "Shop hủy";
+const BUYER_CANCEL_REASON = "Người mua hủy đơn";
 
 function createServiceError(message, statusCode = 400) {
   const error = new Error(message);
@@ -85,7 +89,7 @@ async function toPublicReservation(doc) {
           id: deal._id,
           status: deal.status,
           offeredPrice: deal.offeredPrice || 0,
-          sellerCounterPrice: deal.sellerCounterPrice || null,
+          lastOfferBy: Number(deal.lastOfferBy) || 1,
         }
       : null,
   };
@@ -224,16 +228,23 @@ async function confirmReservation(user, reservationId) {
 async function rejectReservation(user, reservationId, { reason } = {}) {
   const { reservation } = await getOwnedReservation(user, reservationId);
 
+  if (reservation.status === RESERVATION_STATUS.CONFIRMED) {
+    throw createServiceError(
+      "Đơn đã được xác nhận giữ hàng. Shop không thể hủy đơn này nữa.",
+      403
+    );
+  }
   if ([RESERVATION_STATUS.COMPLETED, RESERVATION_STATUS.CANCELLED].includes(reservation.status)) {
     throw createServiceError("Không thể từ chối đơn này.");
+  }
+  if (reservation.status !== RESERVATION_STATUS.PENDING) {
+    throw createServiceError("Chỉ có thể từ chối đơn đang chờ xác nhận.");
   }
 
   const now = new Date();
   reservation.status = RESERVATION_STATUS.CANCELLED;
   reservation.cancelledAt = now;
-  if (reason) {
-    reservation.note = `${reservation.note || ""}\n[Từ chối] ${reason}`.trim();
-  }
+  reservation.cancelReason = String(reason || "").trim() || SHOP_CANCEL_REASON;
   await releaseVariantInventory(reservation);
   reservation.UpdatedAt = now;
   await reservation.save();
@@ -244,16 +255,26 @@ async function rejectReservation(user, reservationId, { reason } = {}) {
 async function cancelReservationBySeller(user, reservationId, { reason } = {}) {
   const { reservation } = await getOwnedReservation(user, reservationId);
 
+  if (reservation.status === RESERVATION_STATUS.CONFIRMED) {
+    throw createServiceError(
+      "Đơn đã được xác nhận giữ hàng. Shop không thể hủy đơn này nữa.",
+      403
+    );
+  }
   if (reservation.status === RESERVATION_STATUS.COMPLETED) {
     throw createServiceError("Đơn đã hoàn thành, không thể hủy.");
+  }
+  if (reservation.status === RESERVATION_STATUS.CANCELLED) {
+    throw createServiceError("Đơn đã được hủy.");
+  }
+  if (reservation.status !== RESERVATION_STATUS.PENDING) {
+    throw createServiceError("Chỉ có thể hủy đơn đang chờ xác nhận.");
   }
 
   const now = new Date();
   reservation.status = RESERVATION_STATUS.CANCELLED;
   reservation.cancelledAt = now;
-  if (reason) {
-    reservation.note = `${reservation.note || ""}\n[Hủy bởi shop] ${reason}`.trim();
-  }
+  reservation.cancelReason = String(reason || "").trim() || SHOP_CANCEL_REASON;
   await releaseVariantInventory(reservation);
   reservation.UpdatedAt = now;
   await reservation.save();
@@ -288,7 +309,6 @@ async function listPendingPriceDeals(user) {
   const shop = await getShopForSeller(user);
   const deals = await DealOffer.find({
     shopId: shop._id,
-    status: DEAL_OFFER_STATUS.PENDING,
   })
     .sort({ CreatedAt: -1 })
     .limit(100);
@@ -307,10 +327,11 @@ async function listPendingPriceDeals(user) {
         originalPrice: deal.originalPrice || 0,
         offeredPrice: deal.offeredPrice || 0,
         quantity: Number(deal.quantity) || 1,
-        sellerCounterPrice: deal.sellerCounterPrice || null,
+        lastOfferBy: Number(deal.lastOfferBy) || DEAL_OFFER_BY.BUYER,
         discountPercent: deal.discountPercent || 0,
         note: deal.note || "",
         sellerNote: deal.sellerNote || "",
+        reservationId: deal.reservationId || null,
         createdAt: deal.CreatedAt,
         buyer: buyer
           ? {
@@ -354,10 +375,14 @@ async function expireOverdueReservations() {
       const shop = await ShopProfile.findById(reservation.shopId);
       const productName = product?.ProductName || "sản phẩm";
 
+      const wasPending = reservation.status === RESERVATION_STATUS.PENDING;
+      const cancelReason = wasPending
+        ? SHOP_UNCONFIRMED_CANCEL_REASON
+        : NO_SHOW_CANCEL_REASON;
+
       reservation.status = RESERVATION_STATUS.CANCELLED;
       reservation.cancelledAt = now;
-      reservation.cancelReason = NO_SHOW_CANCEL_REASON;
-      reservation.note = `${reservation.note || ""}\n[Hủy tự động] ${NO_SHOW_CANCEL_REASON}`.trim();
+      reservation.cancelReason = cancelReason;
       await releaseVariantInventory(reservation);
       reservation.UpdatedAt = now;
       await reservation.save();
@@ -366,14 +391,20 @@ async function expireOverdueReservations() {
       if (reservation.userId) {
         await createNotification(reservation.userId, {
           title: "Đơn giữ hàng đã bị hủy",
-          content: `Đơn giữ ${productName} đã bị hủy vì quá giờ lấy hàng (${NO_SHOW_CANCEL_REASON.toLowerCase()}).`,
+          content: wasPending
+            ? `Đơn giữ ${productName} đã bị hủy vì quá giờ lấy hàng (${SHOP_UNCONFIRMED_CANCEL_REASON.toLowerCase()}).`
+            : `Đơn giữ ${productName} đã bị hủy vì quá giờ lấy hàng (${NO_SHOW_CANCEL_REASON.toLowerCase()}).`,
+          audience: NOTIFICATION_AUDIENCE.BUYER,
         });
       }
 
       if (shop?.userId) {
         await createNotification(shop.userId, {
           title: "Đơn giữ hàng hết hạn",
-          content: `Đơn giữ ${productName} đã tự hủy vì khách không đến lấy. Tồn kho đã được cộng lại.`,
+          content: wasPending
+            ? `Đơn giữ ${productName} đã tự hủy vì shop chưa xác nhận trước giờ lấy. Tồn kho đã được cộng lại.`
+            : `Đơn giữ ${productName} đã tự hủy vì khách không đến lấy. Tồn kho đã được cộng lại.`,
+          audience: NOTIFICATION_AUDIENCE.SELLER,
         });
       }
     } catch (error) {
@@ -399,4 +430,7 @@ module.exports = {
   markReservationSold,
   expireOverdueReservations,
   NO_SHOW_CANCEL_REASON,
+  SHOP_UNCONFIRMED_CANCEL_REASON,
+  SHOP_CANCEL_REASON,
+  BUYER_CANCEL_REASON,
 };

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -13,40 +13,76 @@ import { Ionicons } from '@expo/vector-icons';
 import { getMyProductsOnBackend } from '../../api/productApi';
 import { getCurrentUserIdToken } from '../../repository/authRepository';
 import { formatPriceRange } from '../../core/utils/productFormat';
+import {
+  getProductImageOverlayLabel,
+  resolveIsOutOfStock,
+} from '../../core/utils/productAvailability';
+import ClearableSearchField from '../shared/components/ClearableSearchField';
 import SellerPostTabScreen from './SellerPostTabScreen';
 import SellerProductDetailScreen from './SellerProductDetailScreen';
 
 function mapApiProductToManageCard(product) {
-  const variants = product.variants || [];
+  const variants = Array.isArray(product.variants) ? product.variants : [];
+  const remainingQuantity =
+    product.remainingQuantity != null
+      ? Number(product.remainingQuantity)
+      : variants.reduce(
+          (sum, variant) =>
+            sum + Math.max(0, Number(variant.quantity ?? variant.Quantity) || 0),
+          0
+        );
 
-  return {
+  const mapped = {
     id: String(product.id),
     name: product.productName || product.name || 'Sản phẩm',
     thumbnail: product.thumbnail || '',
     minPrice: Number(product.minPrice ?? product.price ?? 0),
     maxPrice: Number(product.maxPrice ?? product.minPrice ?? product.price ?? 0),
-    variantCount: variants.length,
+    variantCount: Number(product.variantCount) || variants.length || 0,
     viewCount: Number(product.viewCount ?? 0),
     soldCount: Number(product.soldCount ?? 0),
     likeCount: Number(product.likeCount ?? 0),
     donVi: product.donVi || '',
+    remainingQuantity,
+    variants,
     isOutOfStock: Boolean(product.isOutOfStock),
+    status: product.status,
+    isUnavailable: Boolean(product.isUnavailable),
   };
+
+  // Chỉ hết hàng khi tổng tồn tất cả biến thể = 0 (giống người mua xem shop).
+  mapped.isOutOfStock = resolveIsOutOfStock(mapped);
+  return mapped;
 }
 
 function ProductManageCard({ product, onPress }) {
+  const overlayLabel = getProductImageOverlayLabel(product);
+  const metaLine = [
+    `${product.variantCount} thẻ`,
+    `${product.viewCount} view`,
+    `${product.likeCount} lượt thích`,
+    `${product.soldCount} đã bán`,
+  ].join('  |  ');
+
   return (
     <Pressable
       style={({ pressed }) => [styles.productCard, pressed && styles.productCardPressed]}
       onPress={onPress}
     >
-      {product.thumbnail ? (
-        <Image source={{ uri: product.thumbnail }} style={styles.thumbnail} />
-      ) : (
-        <View style={styles.thumbnailPlaceholder}>
-          <Text style={styles.thumbnailPlaceholderText}>🛒</Text>
-        </View>
-      )}
+      <View style={styles.thumbnailWrap} collapsable={false}>
+        {product.thumbnail ? (
+          <Image source={{ uri: product.thumbnail }} style={styles.thumbnail} />
+        ) : (
+          <View style={styles.thumbnailPlaceholder}>
+            <Text style={styles.thumbnailPlaceholderText}>🛒</Text>
+          </View>
+        )}
+        {overlayLabel ? (
+          <View style={styles.soldOutMask} pointerEvents="none">
+            <Text style={styles.soldOutText}>{overlayLabel}</Text>
+          </View>
+        ) : null}
+      </View>
 
       <View style={styles.productInfo}>
         <Text style={styles.productName} numberOfLines={2}>
@@ -55,23 +91,9 @@ function ProductManageCard({ product, onPress }) {
         <Text style={styles.priceRange}>
           {formatPriceRange(product.minPrice, product.maxPrice)}
         </Text>
-
-        <View style={styles.metaGrid}>
-          <Text style={styles.metaItem}>{product.variantCount} thẻ</Text>
-          <Text style={styles.metaDot}>•</Text>
-          <Text style={styles.metaItem}>{product.viewCount} view</Text>
-          <Text style={styles.metaDot}>•</Text>
-          <Text style={styles.metaItem}>{product.soldCount} đã bán</Text>
-        </View>
-
-        <View style={styles.footerRow}>
-          {product.donVi ? <Text style={styles.unitText}>ĐVT: {product.donVi}</Text> : null}
-          {product.isOutOfStock ? (
-            <Text style={styles.stockBadge}>Hết hàng</Text>
-          ) : (
-            <Text style={styles.likeText}>{product.likeCount} lượt thích</Text>
-          )}
-        </View>
+        <Text style={styles.metaLine} numberOfLines={2}>
+          {metaLine}
+        </Text>
       </View>
     </Pressable>
   );
@@ -83,6 +105,7 @@ export default function SellerProductsTabScreen({
   onNavigationStateChange,
 }) {
   const [products, setProducts] = useState([]);
+  const [search, setSearch] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [showPost, setShowPost] = useState(false);
@@ -113,6 +136,18 @@ export default function SellerProductsTabScreen({
   useEffect(() => {
     onNavigationStateChange?.(Boolean(showPost || productDetailId));
   }, [onNavigationStateChange, productDetailId, showPost]);
+
+  const filteredProducts = useMemo(() => {
+    const keyword = search.trim().toLowerCase();
+    if (!keyword) {
+      return products;
+    }
+    return products.filter((product) => {
+      const name = String(product.name || product.productName || '').toLowerCase();
+      const unit = String(product.donVi || '').toLowerCase();
+      return name.includes(keyword) || unit.includes(keyword);
+    });
+  }, [products, search]);
 
   if (showPost) {
     return (
@@ -150,10 +185,16 @@ export default function SellerProductsTabScreen({
 
   return (
     <View style={styles.screen}>
-      <View style={styles.topBar}>
-        <View style={styles.topBarSpacer} />
+      <View style={styles.header}>
         <Text style={styles.title}>Quản lý sản phẩm</Text>
-        <View style={styles.topBarSpacer} />
+      </View>
+
+      <View style={styles.searchBar}>
+        <ClearableSearchField
+          value={search}
+          onChangeText={setSearch}
+          placeholder="Tìm sản phẩm theo tên..."
+        />
       </View>
 
       {isLoading ? (
@@ -169,14 +210,20 @@ export default function SellerProductsTabScreen({
         </View>
       ) : (
         <FlatList
-          data={products}
+          data={filteredProducts}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.listContent}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
           ListEmptyComponent={
             <View style={styles.emptyCard}>
-              <Text style={styles.emptyTitle}>Chưa có sản phẩm</Text>
+              <Text style={styles.emptyTitle}>
+                {search.trim() ? 'Không tìm thấy sản phẩm' : 'Chưa có sản phẩm'}
+              </Text>
               <Text style={styles.emptyText}>
-                Nhấn nút Đăng tin ở góc dưới bên phải để tạo sản phẩm đầu tiên.
+                {search.trim()
+                  ? 'Thử từ khóa khác hoặc xóa ô tìm kiếm.'
+                  : 'Nhấn nút Đăng tin ở góc dưới bên phải để tạo sản phẩm đầu tiên.'}
               </Text>
             </View>
           }
@@ -195,7 +242,7 @@ export default function SellerProductsTabScreen({
         accessibilityRole="button"
         accessibilityLabel="Đăng tin"
       >
-        <Ionicons name="add" size={28} color="#ffffff" />
+        <Ionicons name="add" size={22} color="#ffffff" />
         <Text style={styles.fabLabel}>Đăng tin</Text>
       </Pressable>
     </View>
@@ -204,24 +251,24 @@ export default function SellerProductsTabScreen({
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#f1f5f9' },
-  topBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  header: {
     paddingTop: 12,
-    paddingBottom: 14,
     paddingHorizontal: 16,
-    backgroundColor: '#0f766e',
+    paddingBottom: 12,
+    backgroundColor: '#ffffff',
   },
   title: {
-    flex: 1,
-    marginHorizontal: 12,
-    color: '#ffffff',
-    fontSize: 17,
+    fontSize: 24,
     fontWeight: '900',
-    textAlign: 'center',
+    color: '#0f172a',
   },
-  topBarSpacer: { width: 36 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
+  searchBar: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 8,
+    backgroundColor: '#f1f5f9',
+  },
   listContent: { padding: 16, paddingBottom: 100 },
   productCard: {
     flexDirection: 'row',
@@ -234,78 +281,66 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   productCardPressed: { opacity: 0.85 },
-  thumbnail: {
+  thumbnailWrap: {
+    position: 'relative',
     width: 88,
     height: 88,
     borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: '#f8fafc',
+  },
+  thumbnail: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
     backgroundColor: '#f8fafc',
   },
   thumbnailPlaceholder: {
-    width: 88,
-    height: 88,
-    borderRadius: 12,
-    backgroundColor: '#f8fafc',
+    width: '100%',
+    height: '100%',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
     borderColor: '#e2e8f0',
+    borderRadius: 12,
   },
   thumbnailPlaceholderText: { fontSize: 32 },
-  productInfo: { flex: 1, minWidth: 0 },
+  soldOutMask: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    zIndex: 2,
+    backgroundColor: 'rgba(0, 0, 0, 0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  soldOutText: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  productInfo: { flex: 1, minWidth: 0, justifyContent: 'center' },
   productName: {
     fontSize: 15,
     fontWeight: '800',
     color: '#0f172a',
-    marginBottom: 6,
+    marginBottom: 4,
     lineHeight: 20,
   },
   priceRange: {
     fontSize: 15,
     fontWeight: '800',
     color: '#0d7377',
-    marginBottom: 8,
-  },
-  metaGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    alignItems: 'center',
-    gap: 4,
     marginBottom: 6,
   },
-  metaItem: {
+  metaLine: {
     fontSize: 12,
     color: '#64748b',
     fontWeight: '700',
-  },
-  metaDot: {
-    fontSize: 12,
-    color: '#cbd5e1',
-    fontWeight: '700',
-  },
-  footerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 8,
-  },
-  unitText: {
-    fontSize: 12,
-    color: '#94a3b8',
-    fontWeight: '600',
-  },
-  likeText: {
-    fontSize: 12,
-    color: '#64748b',
-    fontWeight: '700',
-  },
-  stockBadge: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#b91c1c',
-    backgroundColor: '#fef2f2',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 999,
+    lineHeight: 17,
   },
   emptyCard: {
     backgroundColor: '#ffffff',
@@ -331,13 +366,13 @@ const styles = StyleSheet.create({
     position: 'absolute',
     right: 18,
     bottom: 22,
-    minHeight: 56,
-    borderRadius: 28,
-    paddingHorizontal: 18,
+    minHeight: 44,
+    borderRadius: 22,
+    paddingHorizontal: 14,
     backgroundColor: '#0d7377',
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 4,
     shadowColor: '#0f172a',
     shadowOpacity: 0.2,
     shadowRadius: 8,
@@ -347,7 +382,7 @@ const styles = StyleSheet.create({
   fabPressed: { opacity: 0.9 },
   fabLabel: {
     color: '#ffffff',
-    fontSize: 15,
+    fontSize: 13,
     fontWeight: '800',
   },
 });

@@ -3,12 +3,14 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Pressable,
   RefreshControl,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
 import * as Location from 'expo-location';
+import { Ionicons } from '@expo/vector-icons';
 
 import {
   getFavoriteProductsOnBackend,
@@ -45,7 +47,11 @@ function mapFavoriteToProduct(item) {
   };
 }
 
-export default function FavoriteProductsScreen({ onOpenProduct }) {
+export default function FavoriteProductsScreen({
+  onOpenProduct,
+  onBack = null,
+  title = 'Quản lý sản phẩm yêu thích',
+}) {
   const searchTimerRef = useRef(null);
   const [favorites, setFavorites] = useState([]);
   const [search, setSearch] = useState('');
@@ -183,7 +189,14 @@ export default function FavoriteProductsScreen({ onOpenProduct }) {
   return (
     <View style={styles.screen}>
       <View style={styles.header}>
-        <Text style={styles.title}>Sản phẩm yêu thích</Text>
+        {onBack ? (
+          <Pressable onPress={onBack} style={styles.backButton} hitSlop={8}>
+            <Ionicons name="chevron-back" size={24} color="#0f172a" />
+          </Pressable>
+        ) : null}
+        <Text style={styles.title} numberOfLines={1}>
+          {title}
+        </Text>
         <View style={styles.countBadge}>
           <Text style={styles.countText}>{pagination.total || favorites.length}</Text>
         </View>
@@ -278,12 +291,23 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     marginBottom: 12,
+    gap: 8,
+  },
+  backButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
   },
   title: {
+    flex: 1,
     color: '#102a2a',
-    fontSize: 22,
+    fontSize: 18,
     fontWeight: '900',
   },
   countBadge: {

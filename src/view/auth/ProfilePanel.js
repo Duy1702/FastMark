@@ -35,6 +35,7 @@ import SellerOrdersScreen from '../seller/SellerOrdersScreen';
 import SellerOrderDetailScreen from '../seller/SellerOrderDetailScreen';
 import SellerStatsScreen from '../seller/SellerStatsScreen';
 import BuyerOrdersScreen from '../buyer/BuyerOrdersScreen';
+import FavoriteProductsScreen from '../buyer/FavoriteProductsScreen';
 import StoreDetailScreen from '../store/StoreDetailScreen';
 import { getSellerRegistrationStep } from '../seller/sellerRegistrationFlow';
 import { SELLER_VERIFICATION_STATUS } from '../../constants/sellerVerification';
@@ -352,7 +353,7 @@ export default function ProfilePanel({
       <FollowConnectionsScreen
         initialTab={followConnectionsTab}
         mode={
-          profileMode === 'seller' && followConnectionsTab === 'followers'
+          profileMode === 'seller' || followConnectionsTab === 'followers'
             ? 'followers'
             : 'following'
         }
@@ -413,6 +414,18 @@ export default function ProfilePanel({
         initialTab={buyerOrdersTab}
         tabRequestKey={buyerOrdersTabKey}
       />
+    );
+  }
+
+  if (profileNav === 'favorite-products') {
+    return (
+      <View style={styles.screen}>
+        <FavoriteProductsScreen
+          title="Quản lý sản phẩm yêu thích"
+          onBack={() => setProfileNav(null)}
+          onOpenProduct={(productId) => onOpenProductDetail?.(productId)}
+        />
+      </View>
     );
   }
 
@@ -508,6 +521,7 @@ export default function ProfilePanel({
           setBuyerOrdersTabKey(Date.now());
           setProfileNav('buyer-orders');
         }}
+        onOpenFavoriteProducts={() => setProfileNav('favorite-products')}
         onOpenSellerShopSettings={() => setProfileNav('seller-shop-settings')}
         onOpenSellerReviews={() => setProfileNav('seller-reviews')}
         onOpenSellerOrders={() => setProfileNav('seller-orders')}

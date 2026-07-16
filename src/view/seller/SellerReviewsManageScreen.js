@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
+  Image,
   Pressable,
   StyleSheet,
   Text,
@@ -113,6 +114,13 @@ export default function SellerReviewsManageScreen({ onBack }) {
                 ) : (
                   <Text style={styles.commentMuted}>Không có nội dung.</Text>
                 )}
+                {item.imageUrl || item.image_url ? (
+                  <Image
+                    source={{ uri: item.imageUrl || item.image_url }}
+                    style={styles.reviewImage}
+                    resizeMode="cover"
+                  />
+                ) : null}
               </View>
             );
           }}
@@ -158,4 +166,11 @@ const styles = StyleSheet.create({
   reviewDate: { fontSize: 12, color: '#94a3b8', marginTop: 2, fontWeight: '600' },
   comment: { marginTop: 10, fontSize: 14, color: '#334155', lineHeight: 20 },
   commentMuted: { marginTop: 10, fontSize: 13, color: '#94a3b8', fontStyle: 'italic' },
+  reviewImage: {
+    marginTop: 10,
+    width: '100%',
+    height: 160,
+    borderRadius: 10,
+    backgroundColor: '#e2e8f0',
+  },
 });

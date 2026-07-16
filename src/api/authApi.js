@@ -84,7 +84,7 @@ export async function logoutCurrentUser() {
   log.step('[AUTH] signOut SUCCESS');
 }
 
-export async function updateCurrentUserProfile({ fullName, photoUrl }) {
+export async function updateCurrentUserProfile({ fullName, photoUrl } = {}) {
   const user = getCurrentFirebaseUser();
 
   if (!user) {
@@ -92,11 +92,20 @@ export async function updateCurrentUserProfile({ fullName, photoUrl }) {
     throw new Error('Bạn cần đăng nhập lại.');
   }
 
+  const updates = {};
+  if (fullName !== undefined) {
+    updates.displayName = fullName?.trim() || null;
+  }
+  if (photoUrl !== undefined) {
+    updates.photoURL = photoUrl?.trim() || null;
+  }
+
+  if (Object.keys(updates).length === 0) {
+    return serializeAuthUser(user);
+  }
+
   log.step('[AUTH] updateCurrentUserProfile START', { uid: user.uid });
-  await updateProfile(user, {
-    displayName: fullName?.trim() || null,
-    photoURL: photoUrl?.trim() || null,
-  });
+  await updateProfile(user, updates);
   log.step('[AUTH] updateCurrentUserProfile SUCCESS', { uid: user.uid });
 
   return serializeAuthUser(user);

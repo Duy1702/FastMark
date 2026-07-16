@@ -1,14 +1,5 @@
 const Profile = require('../models/Profile');
 
-function profileFromToken(decoded) {
-  return {
-    firebaseUid: decoded.uid,
-    email: decoded.email || '',
-    fullName: decoded.name || '',
-    photoUrl: decoded.picture || '',
-  };
-}
-
 async function getProfile(req, res) {
   const { uid, email, name, picture } = req.firebaseUser;
 
@@ -49,4 +40,4 @@ async function updateProfile(req, res) {
   return res.json({ profile: profile.toClientProfile() });
 }
 
-module.exports = { getProfile, updateProfile, profileFromToken };
+module.exports = { getProfile, updateProfile };

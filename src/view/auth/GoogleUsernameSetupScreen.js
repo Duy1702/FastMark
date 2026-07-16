@@ -1,6 +1,5 @@
-import { useState } from 'react';
+﻿import { useState } from 'react';
 import {
-  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -24,6 +23,7 @@ import {
 import { validateGoogleProfileForm } from '../../viewmodel/auth/authFormValidation';
 import AuthBrand from './components/AuthBrand';
 import CircularBackButton from '../shared/components/CircularBackButton';
+import AvatarBadge from '../shared/components/AvatarBadge';
 import AuthInput from './components/AuthInput';
 import { AUTH_COLORS, AUTH_RADIUS } from './components/authTheme';
 
@@ -85,13 +85,11 @@ export default function GoogleUsernameSetupScreen() {
 
         <View style={styles.card}>
           <View style={styles.googleUserRow}>
-            {pendingGoogle?.picture ? (
-              <Image source={{ uri: pendingGoogle.picture }} style={styles.avatar} />
-            ) : (
-              <View style={styles.avatarFallback}>
-                <Text style={styles.avatarFallbackText}>G</Text>
-              </View>
-            )}
+            <AvatarBadge
+              name={fullName || pendingGoogle?.fullName || pendingGoogle?.email || 'G'}
+              uri=""
+              size={48}
+            />
             <View style={styles.googleUserMeta}>
               <Text style={styles.googleEmail}>{pendingGoogle?.email || 'Google Account'}</Text>
               <Text style={styles.googleHint}>Đăng nhập bằng Google</Text>
@@ -100,7 +98,6 @@ export default function GoogleUsernameSetupScreen() {
 
           <AuthInput
             label="Họ và tên"
-            icon="👤"
             value={fullName}
             onChangeText={(value) => {
               setFullName(value);
@@ -113,7 +110,6 @@ export default function GoogleUsernameSetupScreen() {
 
           <AuthInput
             label="Tên đăng nhập"
-            icon="🪪"
             value={userName}
             onChangeText={(value) => {
               setUserName(value);
@@ -176,32 +172,13 @@ const styles = StyleSheet.create({
   googleUserRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 12,
     marginBottom: 18,
     padding: 12,
     borderRadius: 16,
     backgroundColor: '#f8fafc',
     borderWidth: 1,
     borderColor: AUTH_COLORS.border,
-  },
-  avatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    marginRight: 12,
-  },
-  avatarFallback: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    marginRight: 12,
-    backgroundColor: '#dbeafe',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatarFallbackText: {
-    fontSize: 20,
-    fontWeight: '800',
-    color: '#1d4ed8',
   },
   googleUserMeta: {
     flex: 1,

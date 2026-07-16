@@ -30,8 +30,8 @@ export function makeProfileFromAuthUser(authUser, updates = {}) {
     fullName: cleanText(patch.fullName) || authUser.displayName || '',
     userName: cleanText(patch.userName),
     phone: cleanText(patch.phone),
-    photoUrl: cleanText(patch.photoUrl) || authUser.photoURL || '',
-    coverImage: cleanText(patch.coverImage),
+    // Không fallback ảnh Google từ Firebase Auth — avatar lấy từ backend/hệ thống.
+    photoUrl: cleanText(patch.photoUrl),
     shopName: cleanText(patch.shopName),
     shopUsername: cleanText(patch.shopUsername),
     categoryId: cleanText(patch.categoryId),
@@ -67,10 +67,6 @@ export function mergeProfile(authUser, baseProfile, updates = {}) {
       patch.photoUrl !== undefined
         ? cleanText(patch.photoUrl)
         : baseProfile?.photoUrl || fallback.photoUrl,
-    coverImage:
-      patch.coverImage !== undefined
-        ? cleanText(patch.coverImage)
-        : baseProfile?.coverImage || fallback.coverImage || '',
     userName:
       patch.userName !== undefined
         ? cleanText(patch.userName)
@@ -221,8 +217,7 @@ export function mapBackendUserToProfile(backendUser, authUser) {
     mongoUserId: backendUser?.id ? String(backendUser.id) : '',
     fullName: backendUser?.fullName,
     phone: backendUser?.phone,
-    photoUrl: backendUser?.avatar,
-    coverImage: backendUser?.coverImage || backendUser?.anhBia || '',
+    photoUrl: backendUser?.avatar || '',
     userName: backendUser?.userName,
     verifyAccount: Boolean(backendUser?.verifyAccount),
     authProvider: backendUser?.authProvider || '',

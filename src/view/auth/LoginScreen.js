@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
+﻿import { useEffect, useState } from 'react';
 import {
+  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -19,7 +20,6 @@ import {
 import { clearAuthFeedback, loginUser } from '../../viewmodel/auth/authSlice';
 import { validateLoginForm } from '../../viewmodel/auth/authFormValidation';
 import { getGoogleAuthSetupError } from '../../viewmodel/auth/googleAuthConfig';
-import AuthBrand from './components/AuthBrand';
 import AuthDivider from './components/AuthDivider';
 import AuthInput from './components/AuthInput';
 import { AUTH_COLORS, AUTH_RADIUS } from './components/authTheme';
@@ -34,26 +34,60 @@ export default function LoginScreen({ onGoRegister, onGoForgot }) {
 
   const [login, setLogin] = useState('');
   const [password, setPassword] = useState('');
+  const [fieldErrors, setFieldErrors] = useState({ login: '', password: '' });
   const [localError, setLocalError] = useState('');
 
   const isLoading = actionStatus === 'loading';
   const isDisabled = isLoading || Boolean(configError);
   const googleSetupError = getGoogleAuthSetupError();
-  const displayError = configError || localError || error;
+  const displayError = configError || localError || (!fieldErrors.login && !fieldErrors.password ? error : '');
 
   useEffect(() => {
     dispatch(clearAuthFeedback());
   }, [dispatch]);
 
-  function handleSubmit() {
+  function clearFieldError(field) {
+    setFieldErrors((current) => ({ ...current, [field]: '' }));
+  }
+
+  async function handleSubmit() {
     const validationError = validateLoginForm({ login, password });
     if (validationError) {
-      setLocalError(validationError);
+      setFieldErrors({
+        login: validationError.field === 'login' ? validationError.message : '',
+        password: validationError.field === 'password' ? validationError.message : '',
+      });
+      setLocalError('');
       return;
     }
 
+    setFieldErrors({ login: '', password: '' });
     setLocalError('');
-    dispatch(loginUser({ login: login.trim(), password }));
+    dispatch(clearAuthFeedback());
+
+    try {
+      await dispatch(loginUser({ login: login.trim(), password })).unwrap();
+    } catch (loginError) {
+      const payload =
+        loginError && typeof loginError === 'object'
+          ? loginError
+          : { message: String(loginError || 'Đăng nhập thất bại.'), field: '' };
+
+      const message = payload.message || 'Đăng nhập thất bại.';
+      const field = payload.field || '';
+
+      if (field === 'login') {
+        setFieldErrors({ login: message, password: '' });
+      } else if (field === 'password') {
+        setFieldErrors({ login: '', password: message });
+      } else if (/không tồn tại|không tìm thấy/i.test(message)) {
+        setFieldErrors({ login: message, password: '' });
+      } else if (/mật khẩu|google/i.test(message)) {
+        setFieldErrors({ login: '', password: message });
+      } else {
+        setLocalError(message);
+      }
+    }
   }
 
   return (
@@ -66,39 +100,41 @@ export default function LoginScreen({ onGoRegister, onGoForgot }) {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        <AuthBrand
-          title="Chào mừng quay trở lại"
-          subtitle="Đăng nhập để khám phá các gian hàng và địa điểm quanh bạn trên FastMark."
-        />
+        <View style={styles.brandWrap}>
+          <Image
+            source={require('../../../assets/welcome.png')}
+            style={styles.brandLogo}
+            resizeMode="cover"
+          />
+          <Text style={styles.brandTitle}>Đăng nhập tài khoản</Text>
+        </View>
 
         <View style={styles.card}>
           <AuthInput
-            label="Email hoặc Tên đăng nhập"
-            icon="👤"
+            label="Email hoặc Username"
             value={login}
             onChangeText={(value) => {
               setLogin(value);
+              clearFieldError('login');
               setLocalError('');
             }}
+            error={fieldErrors.login}
             autoCapitalize="none"
             autoComplete="username"
-            placeholder="Nhập email hoặc userName"
           />
 
           <AuthInput
             label="Mật khẩu"
-            icon="🔒"
-            rightLabel="Quên mật khẩu?"
-            onRightLabelPress={() => onGoForgot?.()}
             value={password}
             onChangeText={(value) => {
               setPassword(value);
+              clearFieldError('password');
               setLocalError('');
             }}
+            error={fieldErrors.password}
             secureTextEntry
             autoCapitalize="none"
             autoComplete="current-password"
-            placeholder="Nhập mật khẩu"
           />
 
           {displayError ? (
@@ -127,6 +163,10 @@ export default function LoginScreen({ onGoRegister, onGoForgot }) {
             </Text>
           </Pressable>
 
+          <Pressable onPress={() => onGoForgot?.()} style={styles.forgotLinkWrap} hitSlop={8}>
+            <Text style={styles.forgotLink}>Quên mật khẩu?</Text>
+          </Pressable>
+
           <AuthDivider label="Hoặc đăng nhập với" />
 
           {googleSetupError ? (
@@ -138,10 +178,14 @@ export default function LoginScreen({ onGoRegister, onGoForgot }) {
           <GoogleSignInButton disabled={isLoading} onError={setLocalError} />
         </View>
 
-        <Pressable onPress={onGoRegister} style={styles.footerLinkWrap}>
-          <Text style={styles.footerText}>
-            Chưa có tài khoản? <Text style={styles.footerLink}>Đăng ký tài khoản mới</Text>
-          </Text>
+        <Pressable
+          onPress={onGoRegister}
+          style={({ pressed }) => [
+            styles.registerButton,
+            pressed && styles.registerButtonPressed,
+          ]}
+        >
+          <Text style={styles.registerButtonText}>Đăng ký tài khoản mới</Text>
         </Pressable>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -159,17 +203,34 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 36,
   },
+  brandWrap: {
+    alignItems: 'center',
+    marginBottom: 28,
+  },
+  brandLogo: {
+    width: 96,
+    height: 96,
+    borderRadius: 24,
+    marginBottom: 18,
+  },
+  brandTitle: {
+    fontSize: 26,
+    fontWeight: '800',
+    color: AUTH_COLORS.text,
+    textAlign: 'center',
+    letterSpacing: -0.5,
+  },
   card: {
-    backgroundColor: AUTH_COLORS.card,
-    borderRadius: AUTH_RADIUS.card,
-    padding: 22,
-    borderWidth: 1,
-    borderColor: '#eef2f2',
-    shadowColor: '#0f172a',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.08,
-    shadowRadius: 24,
-    elevation: 6,
+    paddingVertical: 8,
+  },
+  forgotLinkWrap: {
+    alignItems: 'center',
+    marginTop: 14,
+  },
+  forgotLink: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: AUTH_COLORS.primary,
   },
   alertBox: {
     marginBottom: 14,
@@ -231,6 +292,24 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     color: '#92400e',
     fontWeight: '600',
+  },
+  registerButton: {
+    marginTop: 24,
+    minHeight: 54,
+    borderRadius: AUTH_RADIUS.button,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#ffffff',
+    borderWidth: 1.5,
+    borderColor: AUTH_COLORS.primary,
+  },
+  registerButtonPressed: {
+    opacity: 0.85,
+  },
+  registerButtonText: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: AUTH_COLORS.primary,
   },
   footerLinkWrap: {
     marginTop: 24,

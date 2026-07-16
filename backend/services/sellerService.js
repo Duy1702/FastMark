@@ -121,7 +121,7 @@ function createServiceError(message, statusCode = 400) {
 function ensureUserHasPhone(user) {
   const phone = String(user.Phone || "").trim();
   if (!phone || phone.length !== 10) {
-    throw createServiceError("Bạn cần thêm số điện thoại trước khi đăng ký người bán.");
+    throw createServiceError("Bạn cần thêm số điện thoại trước khi xác minh.");
   }
   return phone;
 }

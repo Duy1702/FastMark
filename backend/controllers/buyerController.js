@@ -180,7 +180,7 @@ exports.removeFavorite = async (req, res) => {
   });
 };
 
-exports.followUser = async (req, res) => {
+exports.followShop = async (req, res) => {
   const result = await userFollowService.followShop(req.currentUser, {
     shopId: pickBodyValue(req.body, ["shopId", "shop_id"]),
     sellerUserId: pickBodyValue(req.body, ["sellerUserId", "userId", "followedUserId"]),
@@ -192,7 +192,7 @@ exports.followUser = async (req, res) => {
   });
 };
 
-exports.unfollowUser = async (req, res) => {
+exports.unfollowShop = async (req, res) => {
   const result = await userFollowService.unfollowShop(req.currentUser, {
     shopId:
       pickBodyValue(req.params, ["targetId", "shopId"]) ||

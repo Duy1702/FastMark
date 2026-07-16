@@ -5,6 +5,7 @@ const ShopProfile = require("../models/ShopProfile");
 const { USER_STATUS } = require("../constants/userStatus");
 const { SHOP_STATUS } = require("../constants/shopStatus");
 const { createNotification } = require("./notificationService");
+const { NOTIFICATION_AUDIENCE } = require("../constants/notificationAudience");
 
 /** Collection cũ: user → seller (UserFollow). */
 const LegacyUserFollow =
@@ -223,6 +224,7 @@ async function followShop(currentUser, payload = {}) {
     await createNotification(shop.userId, {
       title: "Có người theo dõi gian hàng",
       content: `${followerName} vừa theo dõi gian hàng ${shop.shopName || ""}`.trim() + ".",
+      audience: NOTIFICATION_AUDIENCE.SELLER,
     });
   }
 

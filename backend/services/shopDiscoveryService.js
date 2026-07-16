@@ -11,6 +11,32 @@ const { PRODUCT_STATUS } = require("../constants/productStatus");
 const EARTH_RADIUS_METERS = 6371000;
 const MAX_SEARCH_RADIUS_METERS = 10000;
 
+function isUnlimitedRadius(radiusMeters) {
+  const raw = String(radiusMeters ?? "")
+    .trim()
+    .toLowerCase();
+  if (!raw) {
+    return false;
+  }
+  if (raw === "all" || raw === "unlimited" || raw === "inf" || raw === "infinity") {
+    return true;
+  }
+  const value = Number(radiusMeters);
+  return value === 0 || value === -1;
+}
+
+function clampSearchRadius(radiusMeters, fallback = 2000) {
+  return Math.min(Math.max(Number(radiusMeters) || fallback, 100), MAX_SEARCH_RADIUS_METERS);
+}
+
+/** Returns finite radius meters, or null when search should include all distances. */
+function resolveSearchRadius(radiusMeters, fallback = 2000) {
+  if (isUnlimitedRadius(radiusMeters)) {
+    return null;
+  }
+  return clampSearchRadius(radiusMeters, fallback);
+}
+
 function computeIsOutOfStock(variants = []) {
   if (!Array.isArray(variants) || variants.length === 0) {
     return false;
@@ -170,10 +196,6 @@ function mergeProductMatches(...maps) {
   });
 
   return merged.size > 0 ? merged : null;
-}
-
-function clampSearchRadius(radiusMeters, fallback = 2000) {
-  return Math.min(Math.max(Number(radiusMeters) || fallback, 100), MAX_SEARCH_RADIUS_METERS);
 }
 
 function pickShopText(shop, ...keys) {
@@ -359,8 +381,8 @@ async function searchShops({
 }) {
   const lat = Number(latitude);
   const lng = Number(longitude);
-  const radius = clampSearchRadius(radiusMeters, 2000);
-  const maxResults = Math.min(Math.max(Number(limit) || 50, 1), 100);
+  const radius = resolveSearchRadius(radiusMeters, 2000);
+  const maxResults = Math.min(Math.max(Number(limit) || 50, 1), 200);
   const shopKeyword = normalizeSearchText(String(q || "").replace(/^@+/, ""));
   const productKeyword = identityOnly ? "" : normalizeSearchText(productQuery);
   const normalizedShopCategoryId = String(shopCategoryId || "").trim();
@@ -425,7 +447,7 @@ async function searchShops({
       Number(shop.longitude)
     );
 
-    if (distanceMeters > radius) {
+    if (radius != null && distanceMeters > radius) {
       continue;
     }
 
@@ -630,7 +652,7 @@ async function discoverProducts({
 }) {
   const lat = Number(latitude);
   const lng = Number(longitude);
-  const radius = clampSearchRadius(radiusMeters, 5000);
+  const radius = resolveSearchRadius(radiusMeters, 5000);
   const maxResults = Math.min(Math.max(Number(limit) || 80, 1), 200);
   const keyword = normalizeSearchText(search);
   const normalizedCategoryId = String(categoryId || "").trim();
@@ -677,7 +699,7 @@ async function discoverProducts({
       Number(shop.longitude)
     );
 
-    if (distanceMeters > radius) {
+    if (radius != null && distanceMeters > radius) {
       continue;
     }
 
@@ -703,10 +725,15 @@ async function discoverProducts({
     };
   }
 
-  const products = await Product.find(productFilter)
-    .sort({ CreatedAt: -1 })
-    .limit(maxResults)
-    .lean();
+  // When searching (or unlimited radius), load matches then sort by distance.
+  // Nearby browse keeps an early limit for speed.
+  let productsQuery = Product.find(productFilter);
+  if (keyword || radius == null) {
+    productsQuery = productsQuery.lean();
+  } else {
+    productsQuery = productsQuery.sort({ CreatedAt: -1 }).limit(maxResults).lean();
+  }
+  const products = await productsQuery;
 
   if (products.length === 0) {
     return [];
@@ -772,7 +799,7 @@ async function discoverProducts({
     return String(right.id).localeCompare(String(left.id));
   });
 
-  return enriched.filter((product) => !product.isOutOfStock);
+  return enriched.filter((product) => !product.isOutOfStock).slice(0, maxResults);
 }
 
 async function listPublicReviewsByShopId(shopId) {
@@ -784,21 +811,24 @@ async function listPublicReviewsByShopId(shopId) {
   }
 
   const rows = await Review.find({
-    store_id: String(shopId),
-    is_deleted: { $ne: true },
-    is_hidden: { $ne: true },
-    externalId: { $not: /^seed-admin-review/i },
+    storeId: String(shopId),
+    isDeleted: { $ne: true },
+    isHidden: { $ne: true },
+    legacyExternalId: { $not: /^seed-admin-review/i },
   })
-    .sort({ created_at: -1 })
+    .sort({ CreatedAt: -1 })
     .lean();
 
   return rows.map((row) => ({
-    id: row.externalId || String(row._id),
-    store_id: row.store_id,
-    user_name: row.user_name || "Khách hàng",
+    id: String(row._id),
+    store_id: row.storeId || "",
+    user_name: row.userName || "Khách hàng",
     rating: row.rating,
     comment: row.comment || "",
-    created_at: row.created_at || row.createdAt,
+    image_url: row.imageUrl || "",
+    imageUrl: row.imageUrl || "",
+    created_at: row.CreatedAt || null,
+    createdAt: row.CreatedAt || null,
   }));
 }
 
@@ -807,6 +837,7 @@ module.exports = {
   searchShops,
   getPublicShopById,
   MAX_SEARCH_RADIUS_METERS,
+  isUnlimitedRadius,
   listPublicProductsByShopId,
   listPublicReviewsByShopId,
   discoverProducts,

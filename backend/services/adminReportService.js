@@ -10,6 +10,7 @@ const { PRODUCT_STATUS } = require("../constants/productStatus");
 const { SHOP_STATUS, SHOP_OPEN } = require("../constants/shopStatus");
 const { resolveMediaUrl } = require("../utils/resolveMediaUrl");
 const { createNotification } = require("./notificationService");
+const { NOTIFICATION_AUDIENCE } = require("../constants/notificationAudience");
 const { blockAccount } = require("./adminAccountService");
 const { USER_ROLE } = require("../constants/sellerVerification");
 
@@ -58,14 +59,29 @@ async function loadReportTargetContext(reports) {
     productIds.length
       ? Product.find({ _id: { $in: productIds } }).select("ProductName ShopId").lean()
       : [],
-    reviewIds.length ? Review.find({ externalId: { $in: reviewIds } }).lean() : [],
+    reviewIds.length
+      ? Review.find({
+          $or: [
+            { legacyExternalId: { $in: reviewIds } },
+            ...(reviewIds.filter(isStrictMongoObjectId).length
+              ? [{ _id: { $in: reviewIds.filter(isStrictMongoObjectId) } }]
+              : []),
+          ],
+        }).lean()
+      : [],
     targetUserIds.length
       ? ShopProfile.find({ userId: { $in: targetUserIds } }).select("shopName description userId").lean()
       : [],
   ]);
 
   const productById = new Map(products.map((product) => [String(product._id), product]));
-  const reviewByExternalId = new Map(reviews.map((review) => [review.externalId, review]));
+  const reviewByExternalId = new Map();
+  reviews.forEach((review) => {
+    if (review.legacyExternalId) {
+      reviewByExternalId.set(String(review.legacyExternalId), review);
+    }
+    reviewByExternalId.set(String(review._id), review);
+  });
 
   const shopIdSet = new Set(directShopIds);
   products.forEach((product) => {
@@ -74,8 +90,8 @@ async function loadReportTargetContext(reports) {
     }
   });
   reviews.forEach((review) => {
-    if (review.store_id) {
-      shopIdSet.add(String(review.store_id));
+    if (review.storeId) {
+      shopIdSet.add(String(review.storeId));
     }
   });
 
@@ -154,8 +170,8 @@ function resolveReportTargetNames(report, context) {
 
   if (!targetShopName && report.reviewId) {
     const review = context.reviewByExternalId.get(pickString(report.reviewId));
-    if (review?.store_id) {
-      targetShopName = resolveShopNameFromStoreId(review.store_id, context);
+    if (review?.storeId) {
+      targetShopName = resolveShopNameFromStoreId(review.storeId, context);
     }
   }
 
@@ -242,15 +258,36 @@ function toReviewSummary(review) {
   }
 
   return {
-    id: review.externalId,
-    storeId: review.store_id,
-    userName: review.user_name || "Khách hàng",
+    id: String(review._id),
+    legacyExternalId: review.legacyExternalId || "",
+    storeId: review.storeId || "",
+    userName: review.userName || "Khách hàng",
     rating: review.rating,
     comment: review.comment || "",
-    isHidden: Boolean(review.is_hidden),
-    isDeleted: Boolean(review.is_deleted),
-    createdAt: review.created_at || review.createdAt || null,
+    imageUrl: review.imageUrl || "",
+    isHidden: Boolean(review.isHidden),
+    isDeleted: Boolean(review.isDeleted),
+    createdAt: review.CreatedAt || null,
   };
+}
+
+async function findReviewForReport(report) {
+  if (report.reviewId) {
+    const reviewId = pickString(report.reviewId);
+    const query = isStrictMongoObjectId(reviewId)
+      ? { $or: [{ _id: reviewId }, { legacyExternalId: reviewId }] }
+      : { legacyExternalId: reviewId };
+    const byId = await Review.findOne(query).lean();
+    if (byId) {
+      return byId;
+    }
+  }
+
+  if (report.reportType === REPORT_TYPE.REVIEW && report.content) {
+    return Review.findOne({ comment: report.content }).sort({ CreatedAt: -1 }).lean();
+  }
+
+  return null;
 }
 
 function toReportListItem(report, reporter, targetUser, targetNames = {}) {
@@ -409,11 +446,9 @@ async function getReportDetail(reportId) {
     await Promise.all([
       report.userId ? User.findById(report.userId).lean() : null,
       ReportImage.find({ reportId: report._id }).sort({ CreatedAt: 1 }).lean(),
-      report.reviewId
-        ? Review.findOne({ externalId: report.reviewId }).lean()
-        : report.reportType === REPORT_TYPE.REVIEW && report.content
-          ? Review.findOne({ comment: report.content }).sort({ created_at: -1 }).lean()
-          : null,
+      report.reviewId || report.reportType === REPORT_TYPE.REVIEW
+        ? findReviewForReport(report)
+        : null,
       loadReportTargetContext([report]),
       report.shopId ? ShopProfile.findById(report.shopId).lean() : null,
       report.productId ? Product.findById(report.productId).lean() : null,
@@ -505,29 +540,27 @@ async function applyReviewAction(report, action) {
     return null;
   }
 
-  const reviewQuery = report.reviewId
-    ? { externalId: report.reviewId }
-    : report.content
-      ? { comment: report.content }
-      : null;
-
-  if (!reviewQuery) {
-    throw createServiceError("Không xác định được đánh giá cần xử lý.", 400);
+  const lean = await findReviewForReport(report);
+  if (!lean) {
+    throw createServiceError("Không tìm thấy đánh giá liên quan.", 404);
   }
 
-  const review = await Review.findOne(reviewQuery);
+  const review = await Review.findById(lean._id);
   if (!review) {
     throw createServiceError("Không tìm thấy đánh giá liên quan.", 404);
   }
 
   if (action === "hide") {
-    review.is_hidden = true;
+    review.isHidden = true;
   } else if (action === "delete") {
-    review.is_deleted = true;
+    review.isDeleted = true;
+    review.isHidden = true;
+    review.deletedAt = new Date();
   } else {
     throw createServiceError("Hành động xử lý không hợp lệ.", 400);
   }
 
+  review.UpdatedAt = new Date();
   await review.save();
   return review;
 }
@@ -558,7 +591,11 @@ async function notifyShopOwner(shop, title, content) {
   if (!shop.userId) {
     return;
   }
-  await createNotification(shop.userId, { title, content });
+  await createNotification(shop.userId, {
+    title,
+    content,
+    audience: NOTIFICATION_AUDIENCE.SELLER,
+  });
 }
 
 async function hideShopProducts(shopId) {
@@ -655,6 +692,7 @@ async function applyUserAction(report, action, adminUser) {
     await createNotification(targetUser._id, {
       title: "Cảnh cáo vi phạm",
       content: `Tài khoản của bạn đã nhận cảnh cáo từ quản trị viên do báo cáo "${report.title || "Vi phạm"}". Vui lòng tuân thủ quy định của FastMark.`,
+      audience: NOTIFICATION_AUDIENCE.SYSTEM,
     });
     return { action: "warn" };
   }

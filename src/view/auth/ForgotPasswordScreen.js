@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+﻿import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -15,7 +15,7 @@ import {
   resetPasswordOnBackend,
   verifyPasswordResetOtpOnBackend,
 } from '../../api/authBackendApi';
-import AuthBrand from './components/AuthBrand';
+import CircularBackButton from '../shared/components/CircularBackButton';
 import AuthInput from './components/AuthInput';
 import { AUTH_COLORS, AUTH_RADIUS } from './components/authTheme';
 
@@ -143,20 +143,23 @@ export default function ForgotPasswordScreen({ onBack, onSuccess }) {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <Pressable onPress={onBack} style={styles.backLink}>
-          <Text style={styles.backLinkText}>← Quay lại đăng nhập</Text>
-        </Pressable>
+        <View style={styles.headerRow}>
+          <CircularBackButton
+            onPress={onBack}
+            variant="surface"
+            size={40}
+            style={styles.backButton}
+          />
+          <Text style={styles.headerTitle}>Quên mật khẩu</Text>
+        </View>
 
-        <AuthBrand
-          title="Quên mật khẩu"
-          subtitle={
-            step === STEPS.EMAIL
-              ? 'Nhập email để nhận mã OTP đặt lại mật khẩu.'
-              : step === STEPS.OTP
-                ? 'Nhập mã OTP đã gửi đến email của bạn.'
-                : 'Tạo mật khẩu mới cho tài khoản FastMark.'
-          }
-        />
+        <Text style={styles.subtitle}>
+          {step === STEPS.EMAIL
+            ? 'Nhập email để nhận mã OTP đặt lại mật khẩu.'
+            : step === STEPS.OTP
+              ? 'Nhập mã OTP đã gửi đến email của bạn.'
+              : 'Tạo mật khẩu mới cho tài khoản FastMark.'}
+        </Text>
 
         <View style={styles.stepsRow}>
           {[STEPS.EMAIL, STEPS.OTP, STEPS.PASSWORD].map((value) => (
@@ -168,7 +171,6 @@ export default function ForgotPasswordScreen({ onBack, onSuccess }) {
           {step === STEPS.EMAIL ? (
             <AuthInput
               label="Email"
-              icon="✉️"
               value={email}
               onChangeText={(value) => {
                 setEmail(value);
@@ -184,7 +186,6 @@ export default function ForgotPasswordScreen({ onBack, onSuccess }) {
             <>
               <AuthInput
                 label="Mã OTP"
-                icon="🔢"
                 value={otp}
                 onChangeText={(value) => {
                   setOtp(value.replace(/\D/g, '').slice(0, 6));
@@ -211,7 +212,6 @@ export default function ForgotPasswordScreen({ onBack, onSuccess }) {
             <>
               <AuthInput
                 label="Mật khẩu mới"
-                icon="🔒"
                 value={newPassword}
                 onChangeText={(value) => {
                   setNewPassword(value);
@@ -222,7 +222,6 @@ export default function ForgotPasswordScreen({ onBack, onSuccess }) {
               />
               <AuthInput
                 label="Xác nhận mật khẩu"
-                icon="🔒"
                 value={confirmPassword}
                 onChangeText={(value) => {
                   setConfirmPassword(value);
@@ -274,17 +273,31 @@ const styles = StyleSheet.create({
   },
   content: {
     flexGrow: 1,
-    justifyContent: 'center',
     paddingHorizontal: 20,
-    paddingVertical: 36,
+    paddingTop: 12,
+    paddingBottom: 36,
   },
-  backLink: {
-    marginBottom: 12,
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 16,
   },
-  backLinkText: {
-    color: AUTH_COLORS.primary,
-    fontWeight: '800',
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: '900',
+    color: AUTH_COLORS.text,
+  },
+  backButton: {
+    borderWidth: 1,
+    borderColor: AUTH_COLORS.border,
+    backgroundColor: '#ffffff',
+  },
+  subtitle: {
     fontSize: 14,
+    color: AUTH_COLORS.textMuted,
+    marginBottom: 16,
+    lineHeight: 20,
   },
   stepsRow: {
     flexDirection: 'row',
@@ -302,11 +315,7 @@ const styles = StyleSheet.create({
     backgroundColor: AUTH_COLORS.primary,
   },
   card: {
-    backgroundColor: AUTH_COLORS.card,
-    borderRadius: AUTH_RADIUS.card,
-    padding: 22,
-    borderWidth: 1,
-    borderColor: '#eef2f2',
+    paddingVertical: 8,
   },
   resendLink: {
     marginBottom: 12,

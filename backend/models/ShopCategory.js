@@ -7,9 +7,7 @@ const ShopCategorySchema = new mongoose.Schema({
   CreatedAt: { type: Date, default: Date.now },
   UpdatedAt: { type: Date, default: Date.now },
 });
-
 ShopCategorySchema.pre("save", function touchUpdatedAt() {
   this.UpdatedAt = new Date();
 });
-
 module.exports = mongoose.model("ShopCategory", ShopCategorySchema, "shopcategories");

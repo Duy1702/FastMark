@@ -21,7 +21,6 @@ import { hasApiBaseUrl } from '../../api/client';
 import {
   updateProfileOnBackend,
   uploadAvatarOnBackend,
-  uploadCoverOnBackend,
 } from '../../api/authBackendApi';
 import {
   mapBackendUserToProfile,
@@ -39,7 +38,7 @@ import {
   upsertUserProfile,
   writeCachedProfile,
 } from '../../repository/profileRepository';
-import { toReadableAuthError } from './authErrors';
+import { toReadableAuthError, toAuthErrorPayload } from './authErrors';
 import { clearGoogleSignInSession } from './clearGoogleSignInSession';
 import { authLogger as log } from '../../core/utils/logger';
 
@@ -102,6 +101,19 @@ function areSellerAccessProfilesEqual(previousProfile, nextProfile) {
   );
 }
 
+/** Align Firebase Auth photoURL with backend avatar (never keep Google provider photo). */
+async function syncAuthPhotoWithBackendAvatar(authUser, backendPhotoUrl) {
+  const photoUrl = String(backendPhotoUrl || '').trim();
+
+  try {
+    const synced = await updateCurrentUserProfile({ photoUrl: photoUrl || null });
+    return synced || { ...authUser, photoURL: photoUrl };
+  } catch (error) {
+    log.fail('syncAuthPhotoWithBackendAvatar', error);
+    return { ...authUser, photoURL: photoUrl };
+  }
+}
+
 function areSellerVerificationsEqual(previousVerification, nextVerification) {
   if (!previousVerification && !nextVerification) {
     return true;
@@ -160,7 +172,7 @@ function normalizeEmailVerification(payload, fallbackEmail = '', { isResend = fa
 }
 
 function rejectWithReadableError(error, rejectWithValue) {
-  return rejectWithValue(toReadableAuthError(error));
+  return rejectWithValue(toAuthErrorPayload(error));
 }
 
 export const hydrateAuthSession = createAsyncThunk(
@@ -206,6 +218,16 @@ export const loadUserProfile = createAsyncThunk(
           const backendData = await fetchBackendUser(idToken);
           const profile = mapBackendUserToProfile(backendData.user, user);
           await writeCachedProfile(profile);
+
+          // Đồng bộ Firebase photo với avatar backend (bỏ ảnh Google còn sót).
+          if (profile?.photoUrl && profile.photoUrl !== user.photoURL) {
+            try {
+              await syncAuthPhotoWithBackendAvatar(user, profile.photoUrl);
+            } catch (error) {
+              log.fail('loadUserProfile:sync-photo', error);
+            }
+          }
+
           log.ok('loadUserProfile:backend', { uid: user.uid });
           return { profile };
         }
@@ -484,39 +506,6 @@ export const uploadUserAvatar = createAsyncThunk(
   }
 );
 
-export const uploadUserCover = createAsyncThunk(
-  'auth/uploadCover',
-  async ({ imageBase64, mimeType }, { getState, rejectWithValue }) => {
-    const authUser = getState().auth.user;
-
-    if (!authUser) {
-      return rejectWithValue('Vui lòng đăng nhập lại.');
-    }
-
-    if (!imageBase64) {
-      return rejectWithValue('Không đọc được dữ liệu ảnh. Vui lòng chọn lại.');
-    }
-
-    if (!hasApiBaseUrl()) {
-      return rejectWithValue('Chưa cấu hình backend API.');
-    }
-
-    try {
-      const idToken = await getCurrentUserIdToken();
-      const data = await uploadCoverOnBackend({ idToken, imageBase64, mimeType });
-      const profile = mapBackendUserToProfile(data.user, authUser);
-      await writeCachedProfile(profile);
-
-      return {
-        profile,
-        message: 'Cập nhật ảnh bìa thành công.',
-      };
-    } catch (error) {
-      return rejectWithValue(toReadableAuthError(error));
-    }
-  }
-);
-
 export const changePassword = createAsyncThunk(
   'auth/changePassword',
   async (payload, { rejectWithValue }) => {
@@ -560,12 +549,13 @@ export const socialLogin = createAsyncThunk(
 
       const user = await signInWithCustomTokenFromBackend(data.customToken);
       const profile = mapBackendUserToProfile(data.user, user);
+      const syncedUser = await syncAuthPhotoWithBackendAvatar(user, profile.photoUrl);
       await writeCachedProfile(profile);
 
-      log.ok('socialLogin:success', { uid: user.uid });
+      log.ok('socialLogin:success', { uid: syncedUser.uid });
       return {
         needsUsername: false,
-        user,
+        user: syncedUser,
         profile,
         message: data.isNew ? 'Đăng ký Google thành công.' : 'Đăng nhập thành công.',
       };
@@ -601,10 +591,11 @@ export const completeGoogleProfile = createAsyncThunk(
 
       const user = await signInWithCustomTokenFromBackend(data.customToken);
       const profile = mapBackendUserToProfile(data.user, user);
+      const syncedUser = await syncAuthPhotoWithBackendAvatar(user, profile.photoUrl);
       await writeCachedProfile(profile);
 
       return {
-        user,
+        user: syncedUser,
         profile,
         message: 'Đăng ký Google thành công.',
       };
@@ -708,7 +699,7 @@ const authSlice = createSlice({
       state.user = {
         ...state.user,
         displayName: trimmedName,
-        photoURL: trimmedPhoto || state.user.photoURL || '',
+        photoURL: trimmedPhoto || state.profile?.photoUrl || '',
       };
 
       state.profile = {
@@ -717,7 +708,7 @@ const authSlice = createSlice({
         email: state.user.email || state.profile?.email || '',
         fullName: trimmedName,
         phone: trimmedPhone,
-        photoUrl: trimmedPhoto || state.profile?.photoUrl || state.user.photoURL || '',
+        photoUrl: trimmedPhoto || state.profile?.photoUrl || '',
         createdAt: state.profile?.createdAt || timestamp,
         updatedAt: timestamp,
       };
@@ -849,7 +840,8 @@ const authSlice = createSlice({
         state.profile = action.payload.profile;
         state.emailVerification = null;
         state.error = null;
-        state.successMessage = action.payload.message;
+        // Không giữ success message để tránh hiện trên tab Tài khoản.
+        state.successMessage = null;
       })
       .addCase(requestEmailVerificationCode.fulfilled, (state, action) => {
         state.actionStatus = 'idle';
@@ -877,7 +869,7 @@ const authSlice = createSlice({
           state.user = {
             ...state.user,
             displayName: action.payload.profile.fullName || state.user.displayName,
-            photoURL: action.payload.profile.photoUrl || state.user.photoURL,
+            photoURL: action.payload.profile.photoUrl || '',
           };
         }
         state.error = null;
@@ -897,28 +889,12 @@ const authSlice = createSlice({
         state.profile = action.payload.profile;
         state.user = {
           ...state.user,
-          photoURL: action.payload.profile?.photoUrl || state.user?.photoURL || '',
+          photoURL: action.payload.profile?.photoUrl || '',
         };
         state.error = null;
         state.successMessage = action.payload.message;
       })
       .addCase(uploadUserAvatar.rejected, (state, action) => {
-        state.actionStatus = 'idle';
-        state.error = action.payload;
-        state.successMessage = null;
-      })
-      .addCase(uploadUserCover.pending, (state) => {
-        state.actionStatus = 'loading';
-        state.error = null;
-        state.successMessage = null;
-      })
-      .addCase(uploadUserCover.fulfilled, (state, action) => {
-        state.actionStatus = 'idle';
-        state.profile = action.payload.profile;
-        state.error = null;
-        state.successMessage = action.payload.message;
-      })
-      .addCase(uploadUserCover.rejected, (state, action) => {
         state.actionStatus = 'idle';
         state.error = action.payload;
         state.successMessage = null;
@@ -938,7 +914,8 @@ const authSlice = createSlice({
         state.user = action.payload.user;
         state.profile = action.payload.profile;
         state.error = null;
-        state.successMessage = action.payload.message;
+        // Không hiện "Đăng nhập thành công" trên tab Tài khoản.
+        state.successMessage = null;
       })
       .addMatcher(
         (action) =>
@@ -975,7 +952,7 @@ const authSlice = createSlice({
           state.profile = action.payload.profile;
           state.pendingGoogle = null;
           state.error = null;
-          state.successMessage = action.payload.message;
+          state.successMessage = null;
         }
       )
       .addMatcher(
@@ -1000,7 +977,11 @@ const authSlice = createSlice({
           ].includes(action.type);
 
           if (state.status !== 'authenticated' || showWhileAuthenticated) {
-            state.error = action.payload;
+            const payload = action.payload;
+            state.error =
+              payload && typeof payload === 'object' && payload.message
+                ? payload.message
+                : payload || 'Đã có lỗi xảy ra.';
           } else {
             log.warn('[AUTH] rejected thunk ignored — user already authenticated', {
               action: action.type,

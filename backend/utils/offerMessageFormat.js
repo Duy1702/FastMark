@@ -29,7 +29,7 @@ function formatOfferMessageContent({
 function formatBuyerCounterMessageContent({
   productName = "",
   originalPrice = 0,
-  sellerCounterPrice = 0,
+  previousOfferPrice = 0,
   offeredPrice = 0,
   quantity = 1,
   discountPercent = 0,
@@ -40,7 +40,7 @@ function formatBuyerCounterMessageContent({
     productName ? `Sản phẩm: ${productName}` : "",
     `Số lượng: ${quantity}`,
     `Tổng niêm yết: ${formatPriceVnd(originalPrice)}`,
-    `Shop đề xuất: ${formatPriceVnd(sellerCounterPrice)}`,
+    `Shop đề xuất: ${formatPriceVnd(previousOfferPrice)}`,
     `Tổng đề nghị mới: ${formatPriceVnd(offeredPrice)}`,
     `Giảm: ${discountPercent || 0}%`,
   ].filter(Boolean);
@@ -55,8 +55,8 @@ function formatBuyerCounterMessageContent({
 function formatSellerCounterMessageContent({
   productName = "",
   originalPrice = 0,
+  previousOfferPrice = 0,
   offeredPrice = 0,
-  sellerCounterPrice = 0,
   quantity = 1,
   note = "",
 } = {}) {
@@ -65,8 +65,8 @@ function formatSellerCounterMessageContent({
     productName ? `Sản phẩm: ${productName}` : "",
     `Số lượng: ${quantity}`,
     `Tổng niêm yết: ${formatPriceVnd(originalPrice)}`,
-    `Khách đề nghị: ${formatPriceVnd(offeredPrice)}`,
-    `Shop đề xuất: ${formatPriceVnd(sellerCounterPrice)}`,
+    `Khách đề nghị: ${formatPriceVnd(previousOfferPrice)}`,
+    `Shop đề xuất: ${formatPriceVnd(offeredPrice)}`,
   ].filter(Boolean);
 
   if (note) {

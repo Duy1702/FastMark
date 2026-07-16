@@ -1,61 +1,62 @@
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 
-import { AUTH_COLORS, AUTH_RADIUS } from './authTheme';
+import { AUTH_COLORS } from './authTheme';
 
 export default function AuthInput({
   label,
-  icon,
+  icon: _icon,
   rightLabel,
   onRightLabelPress,
   secureTextEntry = false,
+  error = '',
   ...props
 }) {
   const [hidden, setHidden] = useState(Boolean(secureTextEntry));
 
   return (
     <View style={styles.field}>
-      <View style={styles.labelRow}>
-        <Text style={styles.label}>{label}</Text>
-        {rightLabel ? (
+      {rightLabel ? (
+        <View style={styles.labelRow}>
           <Pressable onPress={onRightLabelPress} hitSlop={8}>
             <Text style={styles.rightLabel}>{rightLabel}</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
+      <View style={[styles.inputWrap, error ? styles.inputWrapError : null]}>
+        <TextInput
+          {...props}
+          placeholder={label}
+          secureTextEntry={hidden}
+          placeholderTextColor="#6b7280"
+          style={styles.input}
+        />
+        {secureTextEntry ? (
+          <Pressable onPress={() => setHidden((v) => !v)} hitSlop={8} style={styles.eyeBtn}>
+            <Ionicons
+              name={hidden ? 'eye-outline' : 'eye-off-outline'}
+              size={20}
+              color="#94a3b8"
+            />
           </Pressable>
         ) : null}
       </View>
 
-      <View style={styles.inputWrap}>
-        {icon ? <Text style={styles.icon}>{icon}</Text> : null}
-        <TextInput
-          {...props}
-          secureTextEntry={hidden}
-          placeholderTextColor="#9ca3af"
-          style={[styles.input, icon ? styles.inputWithIcon : null]}
-        />
-        {secureTextEntry ? (
-          <Pressable onPress={() => setHidden((v) => !v)} hitSlop={8} style={styles.eyeBtn}>
-            <Text style={styles.eyeIcon}>{hidden ? '👁' : '🙈'}</Text>
-          </Pressable>
-        ) : null}
-      </View>
+      {error ? <Text style={styles.errorText}>{error}</Text> : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   field: {
-    marginBottom: 16,
+    marginBottom: 20,
   },
   labelRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 8,
-  },
-  label: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: AUTH_COLORS.text,
+    justifyContent: 'flex-end',
+    marginBottom: 2,
   },
   rightLabel: {
     fontSize: 13,
@@ -63,33 +64,28 @@ const styles = StyleSheet.create({
     color: AUTH_COLORS.primary,
   },
   inputWrap: {
-    minHeight: 54,
-    borderWidth: 1,
-    borderColor: AUTH_COLORS.border,
-    borderRadius: AUTH_RADIUS.input,
-    backgroundColor: AUTH_COLORS.inputBg,
+    minHeight: 48,
+    borderBottomWidth: 1,
+    borderBottomColor: AUTH_COLORS.border,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 14,
   },
-  icon: {
-    fontSize: 16,
-    marginRight: 10,
-    color: '#9ca3af',
+  inputWrapError: {
+    borderBottomColor: '#dc2626',
+  },
+  errorText: {
+    marginTop: 6,
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#dc2626',
   },
   input: {
     flex: 1,
-    fontSize: 15,
+    fontSize: 16,
     color: AUTH_COLORS.text,
-    paddingVertical: 14,
-  },
-  inputWithIcon: {
-    paddingLeft: 0,
+    paddingVertical: 12,
   },
   eyeBtn: {
     paddingLeft: 8,
-  },
-  eyeIcon: {
-    fontSize: 16,
   },
 });

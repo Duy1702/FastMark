@@ -54,10 +54,12 @@ exports.searchShops = async (req, res) => {
     data: {
       shops,
       count: shops.length,
-      radius_meters: Math.min(
-        Math.max(Number(radiusMeters) || 2000, 100),
-        shopDiscoveryService.MAX_SEARCH_RADIUS_METERS
-      ),
+      radius_meters: shopDiscoveryService.isUnlimitedRadius(radiusMeters)
+        ? null
+        : Math.min(
+            Math.max(Number(radiusMeters) || 2000, 100),
+            shopDiscoveryService.MAX_SEARCH_RADIUS_METERS
+          ),
     },
   });
 };

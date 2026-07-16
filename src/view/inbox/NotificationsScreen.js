@@ -54,7 +54,7 @@ function capitalizeFirstLetter(value = '') {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
-export default function NotificationsScreen({ onNavigationStateChange }) {
+export default function NotificationsScreen({ onNavigationStateChange, audience = 'buyer' }) {
   const [notifications, setNotifications] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState('');
@@ -65,7 +65,7 @@ export default function NotificationsScreen({ onNavigationStateChange }) {
     setLoadError('');
 
     try {
-      const items = await getMyNotificationsOnBackend();
+      const items = await getMyNotificationsOnBackend(audience);
       setNotifications(Array.isArray(items) ? items : []);
     } catch (error) {
       setNotifications([]);
@@ -73,7 +73,7 @@ export default function NotificationsScreen({ onNavigationStateChange }) {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [audience]);
 
   useEffect(() => {
     loadNotifications();
@@ -87,6 +87,7 @@ export default function NotificationsScreen({ onNavigationStateChange }) {
     return (
       <NotificationDetailScreen
         notification={selectedNotification}
+        audience={audience}
         onBack={() => {
           setSelectedNotification(null);
           loadNotifications();
