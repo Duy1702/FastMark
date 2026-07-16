@@ -36,6 +36,13 @@ function errorHandler(error, req, res, next) {
       });
     }
 
+    if (field === 'Phone' || field === 'phone') {
+      return res.status(409).json({
+        success: false,
+        message: 'Số điện thoại đã được sử dụng bởi tài khoản khác.',
+      });
+    }
+
     return res.status(409).json({
       success: false,
       message: `${field} đã tồn tại trong hệ thống.`,
@@ -53,6 +60,8 @@ function errorHandler(error, req, res, next) {
     success: false,
     message,
     error: message,
+    ...(error.code ? { code: error.code } : {}),
+    ...(error.field ? { field: error.field } : {}),
   });
 }
 

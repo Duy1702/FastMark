@@ -16,21 +16,20 @@ export default function ProfileSubScreen({
     <View style={styles.screen}>
       <View
         style={[
-          styles.topBar,
-          embedded && styles.topBarEmbedded,
-          { paddingTop: embedded ? 8 : insets.contentPaddingTop },
-          { paddingBottom: 14 },
+          embedded ? styles.headerPlain : styles.topBar,
+          !embedded && { paddingTop: insets.contentPaddingTop, paddingBottom: 14 },
         ]}
       >
         {embedded ? (
-          <View style={styles.topBarSpacer} />
+          <Text style={styles.titlePlain}>{title}</Text>
         ) : (
-          <CircularBackButton onPress={onBack} variant="light" />
+          <>
+            <CircularBackButton onPress={onBack} variant="plain" style={styles.backButton} />
+            <Text style={styles.titleWithBack} numberOfLines={1}>
+              {title}
+            </Text>
+          </>
         )}
-        <Text style={styles.title} numberOfLines={1}>
-          {title}
-        </Text>
-        <View style={styles.topBarSpacer} />
       </View>
       <ScrollView
         style={styles.body}
@@ -49,23 +48,34 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f1f5f9',
   },
+  headerPlain: {
+    paddingTop: 12,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    backgroundColor: '#ffffff',
+  },
+  titlePlain: {
+    fontSize: 24,
+    fontWeight: '900',
+    color: '#0f172a',
+  },
   topBar: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 8,
     paddingHorizontal: 16,
-    backgroundColor: '#0f766e',
+    backgroundColor: '#ffffff',
   },
-  topBarEmbedded: {},
-  title: {
+  backButton: {
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    backgroundColor: '#ffffff',
+  },
+  titleWithBack: {
     flex: 1,
-    marginHorizontal: 12,
-    color: '#ffffff',
-    fontSize: 17,
+    fontSize: 20,
     fontWeight: '900',
-    textAlign: 'center',
-  },
-  topBarSpacer: {
-    width: 36,
+    color: '#0f172a',
   },
   body: {
     flex: 1,

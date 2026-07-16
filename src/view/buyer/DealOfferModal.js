@@ -256,7 +256,7 @@ export default function DealOfferModal({
                     <Text style={styles.discountText}>Giảm ~{discountPercent}%</Text>
                   ) : null}
 
-                  <Text style={styles.label}>Ghi chú (tuỳ chọn)</Text>
+                  <Text style={styles.label}>Lời nhắn (tuỳ chọn)</Text>
                   <TextInput
                     style={[styles.input, styles.noteInput]}
                     value={note}

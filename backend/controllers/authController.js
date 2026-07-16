@@ -1,5 +1,6 @@
 const authService = require("../services/authService");
 const userService = require("../services/userService");
+const User = require("../models/User");
 const presenceService = require("../services/presenceService");
 const { buildPublicUserProfile } = require("../services/profileService");
 const {
@@ -39,6 +40,37 @@ function validateUserName(userName) {
 
   return "";
 }
+
+function escapeRegex(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+exports.checkRegisterAvailability = async (req, res) => {
+  const userName = pickBodyValue(req.body, ["userName", "UserName"]);
+  const email = pickBodyValue(req.body, ["email", "Email"]);
+
+  if (!userName && !email) {
+    return fail(res, { status: 400, message: "Thiếu userName hoặc email." });
+  }
+
+  const data = {};
+
+  if (userName) {
+    const existingUserName = await User.findOne({
+      UserName: { $regex: `^${escapeRegex(userName)}$`, $options: "i" },
+    });
+    data.userNameTaken = Boolean(existingUserName);
+  }
+
+  if (email) {
+    const existingEmail = await User.findOne({
+      Email: { $regex: `^${escapeRegex(email)}$`, $options: "i" },
+    });
+    data.emailTaken = Boolean(existingEmail);
+  }
+
+  return success(res, { data });
+};
 
 exports.registerEmail = async (req, res) => {
   const email = pickBodyValue(req.body, ["email", "Email"]);
@@ -345,41 +377,6 @@ exports.uploadAvatar = async (req, res) => {
     data: {
       user: publicUser,
       avatarUrl: uploadResult.publicUrl,
-      storagePath: uploadResult.path,
-    },
-  });
-};
-
-exports.uploadCover = async (req, res) => {
-  const coverPayload = readAvatarPayload(req);
-
-  if (!coverPayload) {
-    return fail(res, {
-      status: 400,
-      message: "Thiếu file ảnh bìa.",
-    });
-  }
-
-  const extension = resolveFileExtension(coverPayload.mimeType, coverPayload.originalName);
-  const fileName = `${req.currentUser.FirebaseUID}-cover-${Date.now()}.${extension}`;
-
-  const uploadResult = await uploadImageToSupabase({
-    buffer: coverPayload.buffer,
-    mimeType: coverPayload.mimeType,
-    folder: "covers",
-    fileName,
-  });
-
-  const user = await userService.updateUserProfile(req.currentUser, {
-    coverImage: uploadResult.publicUrl,
-  });
-  const publicUser = await buildPublicUserProfile(user);
-
-  return success(res, {
-    message: "Upload ảnh bìa thành công.",
-    data: {
-      user: publicUser,
-      coverImageUrl: uploadResult.publicUrl,
       storagePath: uploadResult.path,
     },
   });

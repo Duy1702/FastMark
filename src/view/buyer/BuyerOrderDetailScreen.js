@@ -16,7 +16,7 @@ import {
   getBuyerDealOnBackend,
   getBuyerReservationOnBackend,
 } from '../../api/buyerOpsApi';
-import { DEAL_OFFER_STATUS, RESERVATION_STATUS } from '../../constants/sellerOrders';
+import { DEAL_OFFER_STATUS, DEAL_OFFER_BY, RESERVATION_STATUS } from '../../constants/sellerOrders';
 import { getCurrentUserIdToken } from '../../repository/authRepository';
 import { formatOrderCode } from '../../core/utils/orderCode';
 import { formatPrice } from '../../core/utils/productFormat';
@@ -52,14 +52,19 @@ function resolveDealTotals(deal) {
   const originalUnit = Number(deal?.originalPrice) || 0;
   const originalTotal = originalUnit * qty;
   let offeredTotal = Number(deal?.offeredPrice) || 0;
-  let sellerCounter = deal?.sellerCounterPrice != null ? Number(deal.sellerCounterPrice) : null;
   if (originalUnit > 0 && offeredTotal > 0 && offeredTotal <= originalUnit) {
     offeredTotal *= qty;
-    if (sellerCounter != null && sellerCounter <= originalUnit) {
-      sellerCounter *= qty;
-    }
   }
-  return { qty, originalTotal, offeredTotal, sellerCounter };
+  const lastOfferBy = Number(deal?.lastOfferBy) || DEAL_OFFER_BY.BUYER;
+  return { qty, originalTotal, offeredTotal, lastOfferBy };
+}
+
+function getDealOfferLabel(status, lastOfferBy) {
+  const fromSeller = lastOfferBy === DEAL_OFFER_BY.SELLER;
+  if (status === DEAL_OFFER_STATUS.ACCEPTED) {
+    return fromSeller ? 'Bạn đã chấp nhận' : 'Shop đã chấp nhận';
+  }
+  return fromSeller ? 'Giá shop đề nghị' : 'Giá bạn đề nghị';
 }
 
 function DetailRow({ label, value, emphasize = false }) {
@@ -178,20 +183,21 @@ export default function BuyerOrderDetailScreen({
   }
 
   if (kind === 'deal') {
-    const { qty, originalTotal, offeredTotal, sellerCounter } = resolveDealTotals(item);
+    const { qty, originalTotal, offeredTotal, lastOfferBy } = resolveDealTotals(item);
+    const offerLabel = getDealOfferLabel(item.status, lastOfferBy);
     const canReserve = item.status === DEAL_OFFER_STATUS.ACCEPTED && !item.reservationId;
     const canResubmit =
       item.status === DEAL_OFFER_STATUS.REJECTED ||
       (item.status === DEAL_OFFER_STATUS.ACCEPTED && !item.reservationId);
-    const canAcceptCounter =
-      item.status === DEAL_OFFER_STATUS.PENDING && item.sellerCounterPrice;
-    const canCounter =
-      item.status === DEAL_OFFER_STATUS.PENDING && item.sellerCounterPrice;
+    const waitingForBuyer =
+      item.status === DEAL_OFFER_STATUS.PENDING && lastOfferBy === DEAL_OFFER_BY.SELLER;
+    const canAcceptCounter = waitingForBuyer;
+    const canCounter = waitingForBuyer;
 
     async function handleAcceptCounter() {
       Alert.alert(
         'Chấp nhận giá shop',
-        `Bạn đồng ý mua với tổng ${formatPrice(sellerCounter)} (${qty} sp)?`,
+        `Bạn đồng ý mua với tổng ${formatPrice(offeredTotal)} (${qty} sp)?`,
         [
           { text: 'Huỷ', style: 'cancel' },
           {
@@ -233,15 +239,27 @@ export default function BuyerOrderDetailScreen({
             <DetailRow label="Phân loại" value={item.variantName || '—'} />
             <DetailRow label="Gian hàng" value={pickStoreName(item.storeName, item.shopUsername)} />
             <DetailRow label="Số lượng" value={String(qty)} />
-            <DetailRow label="Tổng niêm yết" value={formatPrice(originalTotal)} />
-            <DetailRow label="Tổng đề nghị" value={formatPrice(offeredTotal)} emphasize />
-            {sellerCounter != null ? (
-              <DetailRow label="Shop đề xuất" value={formatPrice(sellerCounter)} emphasize />
+            <DetailRow label="Giá niêm yết" value={formatPrice(originalTotal)} />
+            <DetailRow label={offerLabel} value={formatPrice(offeredTotal)} emphasize />
+            {String(
+              Number(item.lastOfferBy) === DEAL_OFFER_BY.SELLER
+                ? item.sellerNote || ''
+                : item.note || ''
+            ).trim() ? (
+              <DetailRow
+                label="Lời nhắn"
+                value={String(
+                  Number(item.lastOfferBy) === DEAL_OFFER_BY.SELLER
+                    ? item.sellerNote || ''
+                    : item.note || ''
+                ).trim()}
+              />
             ) : null}
-            <DetailRow label="Giảm" value={`${item.discountPercent || 0}%`} />
+            <DetailRow
+              label="Giảm"
+              value={`${Math.max(0, Math.round(((originalTotal - offeredTotal) / (originalTotal || 1)) * 100))}%`}
+            />
             <DetailRow label="Thời gian" value={formatDateTime(item.createdAt)} />
-            {item.note ? <DetailRow label="Ghi chú" value={item.note} /> : null}
-            {item.sellerNote ? <DetailRow label="Ghi chú shop" value={item.sellerNote} /> : null}
           </View>
 
           {error ? <Text style={styles.errorText}>{error}</Text> : null}

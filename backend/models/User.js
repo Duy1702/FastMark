@@ -48,7 +48,6 @@ const userSchema = new mongoose.Schema({
     required: true,
   },
 
-  AnhBia: { type: String, default: "" },
   Avatar: { type: String, default: "" },
 
   Role: { type: Number, default: 1 },
@@ -70,8 +69,6 @@ const userSchema = new mongoose.Schema({
   SellerPhoneVerifyCode: { type: String, default: null },
   SellerPhoneVerifyCodeExpiresAt: { type: Date, default: null },
 
-  FcmToken: { type: String, default: "" },
-
   CreatedAt: { type: Date, default: Date.now },
   UpdatedAt: { type: Date, default: Date.now },
 });
@@ -90,7 +87,6 @@ userSchema.methods.toPublicJSON = function toPublicJSON() {
     phone: this.Phone || "",
     authProvider: this.AuthProvider,
     avatar: this.Avatar || "",
-    coverImage: this.AnhBia || "",
     role: this.Role,
     status: this.Status,
     verifyAccount: this.VerifyAccount,

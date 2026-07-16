@@ -8,6 +8,7 @@ import { getBuyerConversationsOnBackend } from '../../api/messageApi';
 import { getMyNotificationsOnBackend } from '../../api/notificationApi';
 import { getSellerConversationsOnBackend } from '../../api/sellerOpsApi';
 import { APP_MODE_BUYER, APP_MODE_SELLER, useAppMode } from '../../hooks/useAppMode';
+import { usePresence } from '../../hooks/usePresence';
 import { useShopPresence } from '../../hooks/useShopPresence';
 import { useSellerAccessSync } from '../../hooks/useSellerAccessSync';
 import { RESERVATION_TAB } from '../../constants/sellerOrders';
@@ -16,7 +17,7 @@ import { selectCanSwitchToSeller } from '../../viewmodel/auth/authSelectors';
 import { logoutUser } from '../../viewmodel/auth/authSlice';
 
 import ProductsScreen from '../home/ProductsScreen';
-import FavoriteHubScreen from '../buyer/FavoriteHubScreen';
+import BuyerOrdersScreen from '../buyer/BuyerOrdersScreen';
 import InboxScreen from '../inbox/InboxScreen';
 import NotificationsScreen from '../inbox/NotificationsScreen';
 import MapScreen from '../map/MapScreen';
@@ -32,7 +33,7 @@ const ICON_SIZE = 28;
 const BUYER_TABS = [
   { key: 'home', label: 'Trang chủ', icon: 'home-outline', activeIcon: 'home' },
   { key: 'products', label: 'Sản phẩm', icon: 'basket-outline', activeIcon: 'basket' },
-  { key: 'favorites', label: 'Yêu thích', icon: 'heart-outline', activeIcon: 'heart' },
+  { key: 'orders', label: 'Quản lý đơn hàng', icon: 'receipt-outline', activeIcon: 'receipt' },
   { key: 'inbox', label: 'Tin nhắn', icon: 'chatbubble-outline', activeIcon: 'chatbubble', badgeKey: 'messages' },
   { key: 'notifications', label: 'Thông báo', icon: 'notifications-outline', activeIcon: 'notifications', badgeKey: 'notifications' },
   { key: 'profile', label: 'Tài khoản', icon: 'person-outline', activeIcon: 'person' },
@@ -76,6 +77,7 @@ export default function AuthenticatedHome() {
   const canSwitchToSeller = useSelector(selectCanSwitchToSeller);
   const { appMode, setAppMode, isReady, isBuyerMode, isSellerMode } = useAppMode(canSwitchToSeller);
 
+  usePresence(appMode);
   useShopPresence(appMode);
 
   const tabs = isSellerMode ? SELLER_TABS : BUYER_TABS;
@@ -143,7 +145,7 @@ export default function AuthenticatedHome() {
       if (isBuyerMode) {
         const [conversations, notifications] = await Promise.all([
           getBuyerConversationsOnBackend(),
-          getMyNotificationsOnBackend(),
+          getMyNotificationsOnBackend('buyer'),
         ]);
 
         const messageCount = (conversations || []).filter(
@@ -164,7 +166,7 @@ export default function AuthenticatedHome() {
 
         const [conversations, notifications] = await Promise.all([
           getSellerConversationsOnBackend(idToken),
-          getMyNotificationsOnBackend(),
+          getMyNotificationsOnBackend('seller'),
         ]);
         const messageCount = (conversations || []).filter(
           (item) => Math.max(0, Number(item.unreadCount) || 0) > 0
@@ -202,6 +204,13 @@ export default function AuthenticatedHome() {
     setNestedTabState({});
     setTabInstanceKeys({});
   }, [appMode, isReady, isSellerMode]);
+
+  // Tab cũ "favorites" đã đổi thành "orders" — tránh crash nếu state còn tab cũ.
+  useEffect(() => {
+    if (isBuyerMode && activeTab === 'favorites') {
+      setActiveTab('orders');
+    }
+  }, [isBuyerMode, activeTab]);
 
   useEffect(() => {
     if (!isReady) {
@@ -262,7 +271,7 @@ export default function AuthenticatedHome() {
   function handleOpenBuyerOrders(tab = RESERVATION_TAB.HOLDING) {
     setOpenBuyerOrdersRequest({ at: Date.now(), tab });
     setAppMode(APP_MODE_BUYER);
-    handleSelectTab('profile');
+    handleSelectTab('orders');
   }
 
   function handlePickupCompleted() {
@@ -350,10 +359,19 @@ export default function AuthenticatedHome() {
             onNavigationStateChange={(isNested) => updateNestedTabState('products', isNested)}
           />
         ),
-        favorites: (
-          <FavoriteHubScreen onOpenProduct={handleOpenProductDetail} />
+        orders: (
+          <BuyerOrdersScreen
+            embedded
+            initialTab={
+              openBuyerOrdersRequest?.tab || RESERVATION_TAB.HOLDING
+            }
+            tabRequestKey={openBuyerOrdersRequest?.at || 0}
+            onNavigatePickup={handleNavigatePickup}
+            onOpenStore={handleOpenStoreFromProfile}
+            onNavigationStateChange={(isNested) => updateNestedTabState('orders', isNested)}
+          />
         ),
-        notifications: <NotificationsScreen />,
+        notifications: <NotificationsScreen audience="buyer" />,
         inbox: (
           <InboxScreen
             buyerView
@@ -408,6 +426,7 @@ export default function AuthenticatedHome() {
       ),
       notifications: (
         <NotificationsScreen
+          audience="seller"
           onNavigationStateChange={(isNested) => updateNestedTabState('notifications', isNested)}
         />
       ),

@@ -20,7 +20,7 @@ function generateEmailVerifyCode() {
 }
 
 const EMAIL_VERIFY_TTL_MS = 5 * 60 * 1000;
-const EMAIL_RESEND_COOLDOWN_MS = 3 * 60 * 1000;
+const EMAIL_RESEND_COOLDOWN_MS = 2 * 60 * 1000;
 
 function buildVerificationMeta(user) {
   const expiresAt = user.EmailVerifyCodeExpiresAt;
@@ -170,20 +170,66 @@ async function registerWithEmail({
 }
 
 async function loginWithEmail({ login, email, password }) {
-  const loginValue = login || email;
-  let normalizedEmail = normalizeEmail(loginValue);
+  const loginValue = String(login || email || "").trim();
+  const { findUserByUserName, findUserByEmail } = require("./userService");
 
-  if (!String(loginValue).includes("@")) {
-    const { findUserByUserName } = require("./userService");
-    const matchedUser = await findUserByUserName(loginValue);
+  if (!loginValue) {
+    const error = new Error("Vui lòng nhập email hoặc username.");
+    error.statusCode = 400;
+    error.code = "LOGIN_MISSING";
+    error.field = "login";
+    throw error;
+  }
 
-    if (!matchedUser?.Email) {
-      const error = new Error("Không tìm thấy tài khoản với userName này.");
+  if (!password) {
+    const error = new Error("Vui lòng nhập mật khẩu.");
+    error.statusCode = 400;
+    error.code = "LOGIN_MISSING_PASSWORD";
+    error.field = "password";
+    throw error;
+  }
+
+  if (String(password).length < 6) {
+    const error = new Error("Mật khẩu phải có ít nhất 6 ký tự.");
+    error.statusCode = 400;
+    error.code = "LOGIN_PASSWORD_TOO_SHORT";
+    error.field = "password";
+    throw error;
+  }
+
+  let matchedUser = null;
+  let normalizedEmail = "";
+
+  if (loginValue.includes("@")) {
+    normalizedEmail = normalizeEmail(loginValue);
+    matchedUser = await findUserByEmail(normalizedEmail);
+    if (!matchedUser) {
+      const error = new Error("Email không tồn tại.");
       error.statusCode = 404;
+      error.code = "LOGIN_EMAIL_NOT_FOUND";
+      error.field = "login";
       throw error;
     }
-
+  } else {
+    matchedUser = await findUserByUserName(loginValue);
+    if (!matchedUser?.Email) {
+      const error = new Error("Username không tồn tại.");
+      error.statusCode = 404;
+      error.code = "LOGIN_USER_NOT_FOUND";
+      error.field = "login";
+      throw error;
+    }
     normalizedEmail = normalizeEmail(matchedUser.Email);
+  }
+
+  if (String(matchedUser.AuthProvider || "").toLowerCase() === "google") {
+    const error = new Error(
+      "Tài khoản đăng ký bằng Google chưa tạo mật khẩu. Vui lòng đăng nhập bằng Google."
+    );
+    error.statusCode = 400;
+    error.code = "LOGIN_GOOGLE_NO_PASSWORD";
+    error.field = "password";
+    throw error;
   }
 
   const response = await fetch(
@@ -208,18 +254,7 @@ async function loginWithEmail({ login, email, password }) {
   let user = await findUserByFirebaseUid(payload.localId);
 
   if (!user) {
-    const fallbackUserName = normalizedEmail.split("@")[0].slice(0, 20);
-
-    user = await createUserRecord(
-      buildUserPayload({
-        firebaseUid: payload.localId,
-        fullName: payload.displayName || normalizedEmail.split("@")[0],
-        email: normalizedEmail,
-        userName: fallbackUserName,
-        authProvider: "email",
-        verifyAccount: payload.registered || false,
-      })
-    );
+    user = matchedUser;
   }
 
   const { assertUserIsActive } = require("./adminAccountService");
@@ -297,6 +332,7 @@ async function resolveGoogleAuthIdentity(idToken) {
 
 async function registerOrLoginWithGoogle({ idToken, fullName, userName }) {
   const identity = await resolveGoogleAuthIdentity(idToken);
+  const { ensureDefaultUserAvatar } = require("./defaultUserAvatarService");
 
   let user = await findUserByFirebaseUid(identity.firebaseUid);
   let isNew = false;
@@ -307,7 +343,8 @@ async function registerOrLoginWithGoogle({ idToken, fullName, userName }) {
         needsUsername: true,
         email: identity.email,
         fullName: fullName || identity.googleFullName || "",
-        picture: identity.picture,
+        // Không trả ảnh Google — avatar hệ thống sẽ tạo sau khi hoàn tất đăng ký.
+        picture: "",
         firebaseUid: identity.firebaseUid,
       };
     }
@@ -324,20 +361,22 @@ async function registerOrLoginWithGoogle({ idToken, fullName, userName }) {
         fullName: fullName || identity.googleFullName || "Người dùng Google",
         email: identity.email,
         userName,
-        avatar: identity.picture,
+        avatar: "",
         authProvider: "google",
         verifyAccount: identity.emailVerified,
       })
     );
     isNew = true;
+    await ensureDefaultUserAvatar(user);
   } else {
     const { assertUserIsActive } = require("./adminAccountService");
     assertUserIsActive(user);
 
     if (fullName) user.FullName = fullName;
     if (userName) user.UserName = normalizeUserName(userName);
-    if (identity.picture) user.Avatar = identity.picture;
+    // Không ghi đè Avatar bằng ảnh Google. Chỉ tạo avatar hệ thống nếu chưa có.
     await user.save();
+    await ensureDefaultUserAvatar(user);
   }
 
   await updateUserActivity(user);

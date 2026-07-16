@@ -30,23 +30,44 @@ function mapFirebaseAdminError(error) {
 function mapFirebaseRestError(error) {
   const message = error?.error?.message || error?.message || "Đăng nhập thất bại.";
 
-  const mapped = new Error(
-    message.includes("API key not valid") || message.includes("API_KEY_INVALID")
-      ? "FIREBASE_API_KEY không hợp lệ. Kiểm tra .env gốc (chỉ 1 dấu =) và dùng Web API Key đúng project."
-      : message.includes("INVALID_PASSWORD") || message.includes("EMAIL_NOT_FOUND")
-      ? "Email hoặc mật khẩu không đúng."
-      : message.includes("USER_DISABLED")
-        ? "Tài khoản đã bị khóa."
-        : message.includes("INVALID_IDP_RESPONSE") ||
-            message.includes("FEDERATED_USER_ID_ALREADY_LINKED")
-          ? "Token Google không hợp lệ hoặc không khớp project Firebase."
-          : message
-  );
+  let mappedMessage = message;
+  let code = "AUTH_FAILED";
+  let field = "";
+  let statusCode = 401;
 
-  mapped.statusCode =
-    message.includes("API key not valid") || message.includes("API_KEY_INVALID")
-      ? 500
-      : 401;
+  if (message.includes("API key not valid") || message.includes("API_KEY_INVALID")) {
+    mappedMessage =
+      "FIREBASE_API_KEY không hợp lệ. Kiểm tra .env gốc (chỉ 1 dấu =) và dùng Web API Key đúng project.";
+    code = "API_KEY_INVALID";
+    statusCode = 500;
+  } else if (message.includes("EMAIL_NOT_FOUND")) {
+    mappedMessage = "Email không tồn tại.";
+    code = "LOGIN_EMAIL_NOT_FOUND";
+    field = "login";
+  } else if (
+    message.includes("INVALID_PASSWORD") ||
+    message.includes("INVALID_LOGIN_CREDENTIALS")
+  ) {
+    mappedMessage = "Mật khẩu không đúng.";
+    code = "LOGIN_WRONG_PASSWORD";
+    field = "password";
+  } else if (message.includes("USER_DISABLED")) {
+    mappedMessage = "Tài khoản đã bị khóa.";
+    code = "USER_DISABLED";
+  } else if (
+    message.includes("INVALID_IDP_RESPONSE") ||
+    message.includes("FEDERATED_USER_ID_ALREADY_LINKED")
+  ) {
+    mappedMessage = "Token Google không hợp lệ hoặc không khớp project Firebase.";
+    code = "INVALID_GOOGLE_TOKEN";
+  }
+
+  const mapped = new Error(mappedMessage);
+  mapped.statusCode = statusCode;
+  mapped.code = code;
+  if (field) {
+    mapped.field = field;
+  }
   return mapped;
 }
 

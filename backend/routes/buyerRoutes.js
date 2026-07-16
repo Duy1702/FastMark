@@ -56,13 +56,13 @@ router.delete(
 router.get("/follows/status", verifyFirebaseToken, asyncHandler(buyerController.getFollowStatus));
 router.get("/follows/following", verifyFirebaseToken, asyncHandler(buyerController.listFollowing));
 router.get("/follows/followers", verifyFirebaseToken, asyncHandler(buyerController.listFollowers));
-router.post("/follows", verifyFirebaseToken, asyncHandler(buyerController.followUser));
+router.post("/follows", verifyFirebaseToken, asyncHandler(buyerController.followShop));
 router.delete(
   "/follows/:targetId",
   verifyFirebaseToken,
-  asyncHandler(buyerController.unfollowUser)
+  asyncHandler(buyerController.unfollowShop)
 );
-router.delete("/follows", verifyFirebaseToken, asyncHandler(buyerController.unfollowUser));
+router.delete("/follows", verifyFirebaseToken, asyncHandler(buyerController.unfollowShop));
 
 router.get("/orders", verifyFirebaseToken, asyncHandler(buyerOpsController.listOrders));
 router.post("/deals", verifyFirebaseToken, asyncHandler(buyerOpsController.createDeal));

@@ -21,11 +21,12 @@ import {
   selectSellerVerification,
   selectUserRole,
 } from '../../viewmodel/auth/authSelectors';
-import { uploadUserAvatar, syncSellerAccess, loadUserProfile, applyShopSettingsToProfile } from '../../viewmodel/auth/authSlice';
+import { uploadUserAvatar, syncSellerAccess, loadUserProfile, applyShopSettingsToProfile, clearAuthFeedback } from '../../viewmodel/auth/authSlice';
 import {
   getSellerRegisterButtonLabel,
 } from '../seller/sellerRegistrationFlow';
 import { getMyProductsOnBackend } from '../../api/productApi';
+import { getFavoriteProductIdsOnBackend } from '../../api/favoriteApi';
 import { getSellerShopSettingsOnBackend, uploadSellerShopAvatarOnBackend } from '../../api/sellerOpsApi';
 import { getCurrentUserIdToken } from '../../repository/authRepository';
 import StarRating from '../store/components/StarRating';
@@ -139,6 +140,7 @@ export default function AccountProfileScreen({
   onOpenNotificationSettings,
   onOpenInbox,
   onOpenBuyerOrders,
+  onOpenFavoriteProducts,
   onOpenSellerShopSettings,
   onOpenSellerReviews,
   onOpenSellerOrders,
@@ -176,6 +178,7 @@ export default function AccountProfileScreen({
   const [sellerProducts, setSellerProducts] = useState([]);
   const [shopContact, setShopContact] = useState(null);
   const [isLoadingShopContact, setIsLoadingShopContact] = useState(false);
+  const [favoriteCount, setFavoriteCount] = useState(0);
 
   const loadShopContact = useCallback(async () => {
     if (!showAsSeller) {
@@ -228,6 +231,48 @@ export default function AccountProfileScreen({
   }, [dispatch, isProfileVisible, user, shopContactRefreshKey]);
 
   useEffect(() => {
+    if (!isProfileVisible) {
+      return;
+    }
+    const msg = String(successMessage || '').toLowerCase();
+    if (msg.includes('xác minh email') || msg.includes('đăng nhập thành công')) {
+      dispatch(clearAuthFeedback());
+    }
+  }, [dispatch, isProfileVisible, successMessage]);
+
+  useEffect(() => {
+    if (!isProfileVisible || !showAsBuyer || !user) {
+      return undefined;
+    }
+
+    let cancelled = false;
+    async function loadFavoriteCount() {
+      try {
+        const idToken = await getCurrentUserIdToken();
+        if (!idToken) {
+          if (!cancelled) {
+            setFavoriteCount(0);
+          }
+          return;
+        }
+        const productIds = await getFavoriteProductIdsOnBackend(idToken);
+        if (!cancelled) {
+          setFavoriteCount(Array.isArray(productIds) ? productIds.length : 0);
+        }
+      } catch {
+        if (!cancelled) {
+          setFavoriteCount(0);
+        }
+      }
+    }
+
+    loadFavoriteCount();
+    return () => {
+      cancelled = true;
+    };
+  }, [isProfileVisible, showAsBuyer, user]);
+
+  useEffect(() => {
     if (!isProfileVisible || !showAsSeller) {
       return;
     }
@@ -253,7 +298,7 @@ export default function AccountProfileScreen({
 
   const displayName = profile?.fullName || user?.displayName || 'Fastmark user';
   const userName = profile?.userName || user?.email?.split('@')[0] || '';
-  const personalAvatarUrl = resolveImageUrl(profile?.photoUrl) || resolveImageUrl(user?.photoURL);
+  const personalAvatarUrl = resolveImageUrl(profile?.photoUrl);
   const shopAvatarUrl = resolveImageUrl(
     shopContact?.avatar ||
       shopContact?.shopAvatar ||
@@ -466,95 +511,117 @@ export default function AccountProfileScreen({
           ) : null}
 
           <View style={styles.followRow}>
-            <Pressable onPress={() => onOpenFollowConnections?.('following')}>
-              <Text style={styles.followText}>
-                <Text style={styles.followValue}>{formatCount(stats.following)}</Text> đang theo dõi
-              </Text>
-            </Pressable>
-            {showAsSeller ? (
+            {showAsBuyer ? (
               <>
-                <Text style={styles.followDivider}>•</Text>
-                <Pressable onPress={() => onOpenFollowConnections?.('followers')}>
+                <Pressable onPress={() => onOpenFollowConnections?.('following')}>
                   <Text style={styles.followText}>
-                    <Text style={styles.followValue}>{formatCount(stats.followers)}</Text> người theo
-                    dõi shop
+                    <Text style={styles.followValue}>{formatCount(stats.following)}</Text> đang theo dõi
+                  </Text>
+                </Pressable>
+                <Text style={styles.followDivider}>•</Text>
+                <Pressable onPress={() => onOpenFavoriteProducts?.()}>
+                  <Text style={styles.followText}>
+                    <Text style={styles.followValue}>{formatCount(favoriteCount)}</Text> sản phẩm yêu
+                    thích
                   </Text>
                 </Pressable>
               </>
             ) : null}
+            {showAsSeller ? (
+              <View style={styles.shopStatsRow}>
+                <Pressable
+                  onPress={() => onOpenFollowConnections?.('followers')}
+                  style={styles.shopStatItem}
+                >
+                  <Text style={styles.shopStatValue}>{formatCount(stats.followers)}</Text>
+                  <Text style={styles.shopStatLabel}>Theo dõi</Text>
+                </Pressable>
+                <View style={styles.shopStatItem}>
+                  <Text style={styles.shopStatValue}>{formatCount(stats.products)}</Text>
+                  <Text style={styles.shopStatLabel}>Sản phẩm</Text>
+                </View>
+                <View style={styles.shopStatItem}>
+                  <Text style={styles.shopStatValue}>{formatCount(stats.sold)}</Text>
+                  <Text style={styles.shopStatLabel}>Đã bán</Text>
+                </View>
+                <View style={styles.shopStatItem}>
+                  <Text style={styles.shopStatValue}>{formatCount(stats.likes)}</Text>
+                  <Text style={styles.shopStatLabel}>Lượt thích</Text>
+                </View>
+              </View>
+            ) : null}
           </View>
 
-          {showAsBuyer ? (
-            <Pressable
-              onPress={onOpenBuyerOrders}
-              style={({ pressed }) => [styles.ordersEntry, pressed && styles.buttonPressed]}
-            >
-              <Text style={styles.ordersEntryText}>Đơn hàng của bạn</Text>
-            </Pressable>
-          ) : null}
-
           {showAsSeller ? (
-            <View style={styles.contactCard}>
-              <Text style={styles.contactTitle}>Thông tin liên hệ</Text>
-              {isLoadingShopContact ? (
-                <ActivityIndicator color="#0d7377" style={styles.contactLoading} />
-              ) : (
-                <>
-                  <View style={styles.contactRow}>
-                    <Text style={styles.contactLabel}>SĐT</Text>
-                    <Text style={styles.contactValue}>
-                      {shopContact?.shopPhone || shopContact?.userPhone || 'Chưa cập nhật'}
-                    </Text>
-                  </View>
-                  <View style={styles.contactRow}>
-                    <Text style={styles.contactLabel}>Địa chỉ</Text>
-                    <Text style={styles.contactValue}>
-                      {shopContact?.address || 'Chưa cập nhật'}
-                    </Text>
-                  </View>
-                  <View style={styles.contactRow}>
-                    <Text style={styles.contactLabel}>Địa chỉ hệ thống</Text>
-                    <Text style={styles.contactValue}>
-                      {shopContact?.systemAddress || 'Chưa cập nhật'}
-                    </Text>
-                  </View>
-                  <View style={styles.contactRow}>
-                    <Text style={styles.contactLabel}>Giờ mở cửa</Text>
-                    <Text style={styles.contactValue}>
-                      {shopContact?.openTime && shopContact?.closeTime
-                        ? `${shopContact.openTime} - ${shopContact.closeTime}`
-                        : 'Chưa cập nhật'}
-                    </Text>
-                  </View>
-                  <View style={styles.contactRow}>
-                    <Text style={styles.contactLabel}>Trạng thái</Text>
-                    <Text style={[styles.contactValue, shopContact?.isOpen === 0 && styles.closedText]}>
-                      {shopContact?.isOpen === 0 ? 'Đang đóng cửa' : 'Đang mở cửa'}
-                    </Text>
-                  </View>
-                  <View style={styles.sellerToolsRow}>
-                    <Pressable
-                      onPress={() => onOpenSellerShopSettings?.()}
-                      style={({ pressed }) => [
-                        styles.sellerToolButton,
-                        pressed && styles.buttonPressed,
-                      ]}
-                    >
-                      <Text style={styles.sellerToolText}>Cài đặt shop</Text>
-                    </Pressable>
-                    <Pressable
-                      onPress={() => onOpenSellerReviews?.()}
-                      style={({ pressed }) => [
-                        styles.sellerToolButton,
-                        pressed && styles.buttonPressed,
-                      ]}
-                    >
-                      <Text style={styles.sellerToolText}>Quản lý đánh giá</Text>
-                    </Pressable>
-                  </View>
-                </>
-              )}
-            </View>
+            <>
+              <View style={styles.contactCard}>
+                <Text style={styles.contactTitle}>Thông tin liên hệ</Text>
+                {isLoadingShopContact ? (
+                  <ActivityIndicator color="#0d7377" style={styles.contactLoading} />
+                ) : (
+                  <>
+                    <View style={styles.contactRow}>
+                      <Text style={styles.contactLabel}>SĐT</Text>
+                      <Text style={styles.contactValue}>
+                        {shopContact?.shopPhone || shopContact?.userPhone || 'Chưa cập nhật'}
+                      </Text>
+                    </View>
+                    <View style={styles.contactRow}>
+                      <Text style={styles.contactLabel}>Địa chỉ</Text>
+                      <Text style={styles.contactValue}>
+                        {shopContact?.address || 'Chưa cập nhật'}
+                      </Text>
+                    </View>
+                    <View style={styles.contactRow}>
+                      <Text style={styles.contactLabel}>Địa chỉ hệ thống</Text>
+                      <Text style={styles.contactValue}>
+                        {shopContact?.systemAddress || 'Chưa cập nhật'}
+                      </Text>
+                    </View>
+                    <View style={styles.contactRow}>
+                      <Text style={styles.contactLabel}>Giờ mở cửa</Text>
+                      <Text style={styles.contactValue}>
+                        {shopContact?.openTime && shopContact?.closeTime
+                          ? `${shopContact.openTime} - ${shopContact.closeTime}`
+                          : 'Chưa cập nhật'}
+                      </Text>
+                    </View>
+                    <View style={styles.contactRow}>
+                      <Text style={styles.contactLabel}>Trạng thái</Text>
+                      <Text
+                        style={[
+                          styles.contactValue,
+                          shopContact?.isOpen === 0 && styles.closedText,
+                        ]}
+                      >
+                        {shopContact?.isOpen === 0 ? 'Đang đóng cửa' : 'Đang mở cửa'}
+                      </Text>
+                    </View>
+                  </>
+                )}
+              </View>
+
+              <View style={styles.sellerToolsRow}>
+                <Pressable
+                  onPress={() => onOpenSellerShopSettings?.()}
+                  style={({ pressed }) => [
+                    styles.sellerToolButton,
+                    pressed && styles.buttonPressed,
+                  ]}
+                >
+                  <Text style={styles.sellerToolText}>Cài đặt shop</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => onOpenSellerReviews?.()}
+                  style={({ pressed }) => [
+                    styles.sellerToolButton,
+                    pressed && styles.buttonPressed,
+                  ]}
+                >
+                  <Text style={styles.sellerToolText}>Quản lý đánh giá</Text>
+                </Pressable>
+              </View>
+            </>
           ) : null}
 
           {showAsBuyer ? (
@@ -571,25 +638,6 @@ export default function AccountProfileScreen({
               >
                 <Text style={styles.secondaryActionText}>{sellerButtonLabel}</Text>
               </Pressable>
-            </View>
-          ) : null}
-
-          {showAsSeller ? (
-            <View style={styles.statsRow}>
-              <View style={styles.statItem}>
-                <Text style={styles.statValue}>{formatCount(stats.products)}</Text>
-                <Text style={styles.statLabel}>TỔNG SẢN PHẨM</Text>
-              </View>
-              <View style={styles.statDivider} />
-              <View style={styles.statItem}>
-                <Text style={styles.statValue}>{formatCount(stats.sold)}</Text>
-                <Text style={styles.statLabel}>ĐÃ BÁN</Text>
-              </View>
-              <View style={styles.statDivider} />
-              <View style={styles.statItem}>
-                <Text style={styles.statValue}>{formatCount(stats.likes)}</Text>
-                <Text style={styles.statLabel}>TỔNG LƯỢT THÍCH</Text>
-              </View>
             </View>
           ) : null}
         </View>
@@ -684,21 +732,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   avatarWrap: {
-    width: 78,
-    height: 78,
+    width: 88,
+    height: 88,
     marginRight: 14,
     position: 'relative',
   },
   avatarImage: {
-    width: 78,
-    height: 78,
-    borderRadius: 39,
+    width: 88,
+    height: 88,
+    borderRadius: 44,
     backgroundColor: '#e2e8f0',
   },
   avatarFallback: {
-    width: 78,
-    height: 78,
-    borderRadius: 39,
+    width: 88,
+    height: 88,
+    borderRadius: 44,
     backgroundColor: '#0d7377',
     alignItems: 'center',
     justifyContent: 'center',
@@ -786,6 +834,30 @@ const styles = StyleSheet.create({
     gap: 8,
     marginTop: 12,
   },
+  shopStatsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '100%',
+    marginTop: 4,
+  },
+  shopStatItem: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 4,
+  },
+  shopStatValue: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: '#0f172a',
+  },
+  shopStatLabel: {
+    marginTop: 4,
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#64748b',
+    textAlign: 'center',
+  },
   ordersEntry: {
     marginTop: 14,
     flexDirection: 'row',
@@ -857,16 +929,18 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
-    marginTop: 14,
+    marginTop: 12,
   },
   sellerToolButton: {
     flex: 1,
     minHeight: 42,
     borderRadius: 12,
-    backgroundColor: '#e8f3f1',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 8,
+    backgroundColor: '#e8f3f1',
+    borderWidth: 1,
+    borderColor: '#a7f3d0',
+    paddingHorizontal: 10,
   },
   sellerToolText: {
     color: '#0d7377',

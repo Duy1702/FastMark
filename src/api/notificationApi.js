@@ -14,10 +14,18 @@ async function parseApiResponse(response) {
   return payload;
 }
 
-export async function getMyNotificationsOnBackend() {
+function toAudienceQuery(audience) {
+  const value = String(audience || 'buyer').trim().toLowerCase();
+  if (value === 'seller' || value === 'system') {
+    return `?audience=${encodeURIComponent(value)}`;
+  }
+  return '?audience=buyer';
+}
+
+export async function getMyNotificationsOnBackend(audience = 'buyer') {
   return callWithAuthToken(async (idToken) => {
     const response = await apiRequest(
-      API_ENDPOINTS.notifications,
+      `${API_ENDPOINTS.notifications}${toAudienceQuery(audience)}`,
       { method: 'GET', headers: { Authorization: `Bearer ${idToken}` } },
       AUTH_TIMEOUT_MS
     );
@@ -26,7 +34,7 @@ export async function getMyNotificationsOnBackend() {
   });
 }
 
-export async function markNotificationReadOnBackend(notificationId) {
+export async function markNotificationReadOnBackend(notificationId, audience = 'buyer') {
   const id = encodeURIComponent(String(notificationId || '').trim());
   if (!id) {
     throw new Error('Thiếu mã thông báo.');
@@ -34,14 +42,14 @@ export async function markNotificationReadOnBackend(notificationId) {
 
   return callWithAuthToken(async (idToken) => {
     const response = await apiRequest(
-      API_ENDPOINTS.notificationRead(id),
+      `${API_ENDPOINTS.notificationRead(id)}${toAudienceQuery(audience)}`,
       {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${idToken}`,
           'Content-Type': 'application/json',
         },
-        body: '{}',
+        body: JSON.stringify({ audience }),
       },
       AUTH_TIMEOUT_MS
     );
@@ -50,17 +58,17 @@ export async function markNotificationReadOnBackend(notificationId) {
   });
 }
 
-export async function markAllNotificationsReadOnBackend() {
+export async function markAllNotificationsReadOnBackend(audience = 'buyer') {
   return callWithAuthToken(async (idToken) => {
     const response = await apiRequest(
-      API_ENDPOINTS.notificationsReadAll,
+      `${API_ENDPOINTS.notificationsReadAll}${toAudienceQuery(audience)}`,
       {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${idToken}`,
           'Content-Type': 'application/json',
         },
-        body: '{}',
+        body: JSON.stringify({ audience }),
       },
       AUTH_TIMEOUT_MS
     );

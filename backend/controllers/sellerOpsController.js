@@ -202,6 +202,6 @@ exports.getConversationPeer = async (req, res) => {
 };
 
 exports.getStats = async (req, res) => {
-  const stats = await sellerStatsService.getSellerStats(req.currentUser);
+  const stats = await sellerStatsService.getSellerStats(req.currentUser, req.query);
   return success(res, { data: { stats } });
 };

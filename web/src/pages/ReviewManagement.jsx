@@ -297,6 +297,13 @@ export default function ReviewManagement() {
                   <td className="review-content-cell">
                     <StarRating rating={review.rating} />
                     <p className="review-comment">{review.comment}</p>
+                    {review.imageUrl ? (
+                      <img
+                        src={review.imageUrl}
+                        alt="Ảnh đánh giá"
+                        className="review-image-thumb"
+                      />
+                    ) : null}
                     {review.isHidden ? (
                       <span className="badge badge-neutral review-status-badge">Đã ẩn</span>
                     ) : (

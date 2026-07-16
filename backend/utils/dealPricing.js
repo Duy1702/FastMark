@@ -1,4 +1,5 @@
 const MAX_DEAL_DISCOUNT_PERCENT = 50;
+const { DEAL_OFFER_BY } = require("../constants/dealOfferStatus");
 
 function computeDiscountPercent(originalTotal, offeredTotal) {
   if (!originalTotal || originalTotal <= 0) {
@@ -33,47 +34,33 @@ function assertDealDiscountAllowed(originalTotal, offeredTotal) {
 }
 
 /**
- * New deals store offeredPrice / sellerCounterPrice as order TOTALS.
+ * offeredPrice is the current deal TOTAL from lastOfferBy.
  * originalPrice remains the unit list price.
- * Legacy deals stored offered as unit (<= original unit).
+ * Legacy: offered stored as unit (<= original unit) → multiply by qty.
  */
 function resolveDealMoney(deal) {
   const qty = Math.max(1, Number(deal.quantity) || 1);
   const originalUnit = Number(deal.originalPrice) || 0;
   const originalTotal = originalUnit * qty;
   let offeredTotal = Number(deal.offeredPrice) || 0;
-  let sellerCounterTotal =
-    deal.sellerCounterPrice != null && deal.sellerCounterPrice !== ""
-      ? Number(deal.sellerCounterPrice)
-      : null;
 
   const looksLikeLegacyUnit =
     originalUnit > 0 && offeredTotal > 0 && offeredTotal <= originalUnit + 0.0001;
 
   if (looksLikeLegacyUnit) {
     offeredTotal = Math.round(offeredTotal * qty);
-    if (
-      sellerCounterTotal != null &&
-      Number.isFinite(sellerCounterTotal) &&
-      sellerCounterTotal <= originalUnit + 0.0001
-    ) {
-      sellerCounterTotal = Math.round(sellerCounterTotal * qty);
-    }
   }
 
-  const agreedTotal =
-    sellerCounterTotal != null && Number.isFinite(sellerCounterTotal)
-      ? sellerCounterTotal
-      : offeredTotal;
+  const lastOfferBy = Number(deal.lastOfferBy) || DEAL_OFFER_BY.BUYER;
 
   return {
     qty,
     originalUnit,
     originalTotal,
     offeredTotal,
-    sellerCounterTotal: Number.isFinite(sellerCounterTotal) ? sellerCounterTotal : null,
-    agreedTotal,
-    agreedUnitPrice: qty > 0 ? Math.round(agreedTotal / qty) : 0,
+    lastOfferBy,
+    agreedTotal: offeredTotal,
+    agreedUnitPrice: qty > 0 ? Math.round(offeredTotal / qty) : 0,
   };
 }
 

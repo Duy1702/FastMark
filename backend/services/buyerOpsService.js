@@ -4,7 +4,7 @@ const Reservation = require("../models/Reservation");
 const Product = require("../models/Product");
 const ProductVariant = require("../models/ProductVariant");
 const ShopProfile = require("../models/ShopProfile");
-const { DEAL_OFFER_STATUS } = require("../constants/dealOfferStatus");
+const { DEAL_OFFER_STATUS, DEAL_OFFER_BY } = require("../constants/dealOfferStatus");
 const { RESERVATION_STATUS } = require("../constants/reservationStatus");
 const { PRODUCT_STATUS } = require("../constants/productStatus");
 const { SHOP_STATUS, SHOP_OPEN } = require("../constants/shopStatus");
@@ -22,12 +22,29 @@ const {
   resolveDealMoney,
 } = require("../utils/dealPricing");
 const { createNotification } = require("./notificationService");
+const { NOTIFICATION_AUDIENCE } = require("../constants/notificationAudience");
 const messageService = require("./messageService");
 
 function createServiceError(message, statusCode = 400) {
   const error = new Error(message);
   error.statusCode = statusCode;
   return error;
+}
+
+function assertPhoneVerifiedForTrade(user) {
+  const phone = String(user?.Phone || "").trim();
+  if (!/^\d{10}$/.test(phone)) {
+    throw createServiceError(
+      "Vui lòng thêm và xác minh số điện thoại trước khi deal giá hoặc giữ hàng.",
+      403
+    );
+  }
+  if (!user.SellerPhoneVerified) {
+    throw createServiceError(
+      "Vui lòng xác minh số điện thoại trước khi deal giá hoặc giữ hàng.",
+      403
+    );
+  }
 }
 
 function pickNumber(value) {
@@ -89,7 +106,7 @@ async function toPublicDeal(deal) {
     originalPrice: deal.originalPrice || 0,
     offeredPrice: deal.offeredPrice || 0,
     quantity: Number(deal.quantity) || 1,
-    sellerCounterPrice: deal.sellerCounterPrice || null,
+    lastOfferBy: Number(deal.lastOfferBy) || DEAL_OFFER_BY.BUYER,
     discountPercent: deal.discountPercent || 0,
     note: deal.note || "",
     sellerNote: deal.sellerNote || "",
@@ -107,16 +124,13 @@ async function toPublicDeal(deal) {
   };
 }
 
-async function sendBuyerCounterChatMessage(user, shop, deal, previousSellerCounter) {
+async function sendBuyerCounterChatMessage(user, shop, deal, previousOfferPrice) {
   const product = await Product.findById(deal.productId);
-  const money = resolveDealMoney({
-    ...deal.toObject?.() || deal,
-    sellerCounterPrice: previousSellerCounter,
-  });
+  const money = resolveDealMoney(deal);
   const content = formatBuyerCounterMessageContent({
     productName: product?.ProductName || "",
     originalPrice: money.originalTotal,
-    sellerCounterPrice: money.sellerCounterTotal,
+    previousOfferPrice,
     offeredPrice: money.offeredTotal,
     quantity: money.qty,
     discountPercent: deal.discountPercent,
@@ -169,10 +183,16 @@ async function notifyShopOwner(shop, { title, content }) {
   if (!shop?.userId) {
     return;
   }
-  await createNotification(shop.userId, { title, content });
+  await createNotification(shop.userId, {
+    title,
+    content,
+    audience: NOTIFICATION_AUDIENCE.SELLER,
+  });
 }
 
 async function createDealOffer(user, payload) {
+  assertPhoneVerifiedForTrade(user);
+
   const productId = pickString(payload.productId);
   const variantId = pickString(payload.variantId);
   // Deal is always on ORDER TOTAL for the selected quantity (not per unit).
@@ -222,6 +242,7 @@ async function createDealOffer(user, payload) {
     shopId: shop._id,
     originalPrice: originalUnit,
     offeredPrice: offeredTotal,
+    lastOfferBy: DEAL_OFFER_BY.BUYER,
     quantity,
     discountPercent,
     note,
@@ -290,7 +311,7 @@ async function resubmitDealOffer(user, dealId, payload) {
   const offeredPrice = pickNumber(
     payload.offeredTotal ?? payload.offeredPrice ?? payload.offered_price
   );
-  const note = pickString(payload.note ?? deal.note);
+  const note = pickString(payload.note);
 
   if (!Number.isFinite(offeredPrice) || offeredPrice <= 0) {
     throw createServiceError("Tổng đề nghị không hợp lệ.");
@@ -308,7 +329,7 @@ async function resubmitDealOffer(user, dealId, payload) {
   deal.originalPrice = originalUnit;
   deal.discountPercent = computeDiscountPercent(originalTotal, offeredPrice);
   deal.note = note;
-  deal.sellerCounterPrice = null;
+  deal.lastOfferBy = DEAL_OFFER_BY.BUYER;
   deal.sellerNote = "";
   deal.status = DEAL_OFFER_STATUS.PENDING;
   deal.respondedAt = null;
@@ -335,14 +356,14 @@ async function counterDealOfferByBuyer(user, dealId, payload) {
   if (deal.status !== DEAL_OFFER_STATUS.PENDING) {
     throw createServiceError("Deal này đã được xử lý.");
   }
-  if (!deal.sellerCounterPrice) {
+  if (Number(deal.lastOfferBy) !== DEAL_OFFER_BY.SELLER) {
     throw createServiceError("Shop chưa đề xuất giá để trả giá lại.");
   }
 
   const offeredPrice = pickNumber(
     payload.offeredTotal ?? payload.offeredPrice ?? payload.offered_price
   );
-  const note = pickString(payload.note ?? deal.note);
+  const note = pickString(payload.note);
 
   if (!Number.isFinite(offeredPrice) || offeredPrice <= 0) {
     throw createServiceError("Tổng đề nghị không hợp lệ.");
@@ -356,22 +377,22 @@ async function counterDealOfferByBuyer(user, dealId, payload) {
   guardDealDiscount(originalTotal, offeredPrice);
 
   const now = new Date();
-  const previousSellerCounter = deal.sellerCounterPrice;
+  const previousOfferPrice = Number(deal.offeredPrice) || 0;
   deal.offeredPrice = offeredPrice;
   deal.originalPrice = originalUnit;
   deal.discountPercent = computeDiscountPercent(originalTotal, offeredPrice);
   deal.note = note;
-  deal.sellerCounterPrice = null;
+  deal.lastOfferBy = DEAL_OFFER_BY.BUYER;
   deal.sellerNote = "";
   deal.respondedAt = null;
   deal.UpdatedAt = now;
   await deal.save();
 
-  await sendBuyerCounterChatMessage(user, shop, deal, previousSellerCounter);
+  await sendBuyerCounterChatMessage(user, shop, deal, previousOfferPrice);
 
   await notifyShopOwner(shop, {
     title: "Khách trả giá lại",
-    content: `${user.FullName || user.UserName} đề nghị ${offeredPrice.toLocaleString("vi-VN")}đ (shop đề xuất ${Number(previousSellerCounter).toLocaleString("vi-VN")}đ) cho ${quantity} ${product.ProductName}.`,
+    content: `${user.FullName || user.UserName} đề nghị ${offeredPrice.toLocaleString("vi-VN")}đ (shop đề xuất ${Number(previousOfferPrice).toLocaleString("vi-VN")}đ) cho ${quantity} ${product.ProductName}.`,
   });
 
   return toPublicDeal(deal);
@@ -386,12 +407,12 @@ async function acceptCounterOffer(user, dealId) {
   if (deal.status !== DEAL_OFFER_STATUS.PENDING) {
     throw createServiceError("Deal này đã được xử lý.");
   }
-  if (!deal.sellerCounterPrice) {
+  if (Number(deal.lastOfferBy) !== DEAL_OFFER_BY.SELLER) {
     throw createServiceError("Shop chưa đề xuất mức giá mới.");
   }
 
   const shop = await ShopProfile.findById(deal.shopId);
-  const finalPrice = deal.sellerCounterPrice;
+  const finalPrice = deal.offeredPrice;
   const now = new Date();
 
   deal.status = DEAL_OFFER_STATUS.ACCEPTED;
@@ -401,13 +422,15 @@ async function acceptCounterOffer(user, dealId) {
 
   await notifyShopOwner(shop, {
     title: "Khách chấp nhận giá đề xuất",
-    content: `${user.FullName || user.UserName} đã chấp nhận mức giá ${finalPrice.toLocaleString("vi-VN")}đ.`,
+    content: `${user.FullName || user.UserName} đã chấp nhận mức giá ${Number(finalPrice).toLocaleString("vi-VN")}đ.`,
   });
 
   return toPublicDeal(deal);
 }
 
 async function createReservation(user, payload) {
+  assertPhoneVerifiedForTrade(user);
+
   const productId = pickString(payload.productId);
   const variantId = pickString(payload.variantId);
   const dealOfferId = pickString(payload.dealOfferId);
@@ -633,6 +656,7 @@ async function cancelReservationByBuyer(user, reservationId) {
   const now = new Date();
   reservation.status = RESERVATION_STATUS.CANCELLED;
   reservation.cancelledAt = now;
+  reservation.cancelReason = "Người mua hủy đơn";
   await releaseVariantInventory(reservation);
   reservation.UpdatedAt = now;
   await reservation.save();

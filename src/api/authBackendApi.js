@@ -7,6 +7,8 @@ async function parseApiResponse(response) {
   if (!response.ok || payload.success === false) {
     const error = new Error(payload.message || 'Yêu cầu API thất bại.');
     error.statusCode = response.status;
+    error.code = payload.code || '';
+    error.field = payload.field || '';
     throw error;
   }
 
@@ -38,6 +40,23 @@ export async function registerEmailOnBackend({ email, password, userName, fullNa
   );
 
   return parseApiResponse(response);
+}
+
+export async function checkRegisterAvailabilityOnBackend({ userName, email }) {
+  ensureBackendApiConfigured();
+
+  const response = await apiRequest(
+    API_ENDPOINTS.authRegisterAvailability,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userName, email }),
+    },
+    AUTH_TIMEOUT_MS
+  );
+
+  const payload = await parseApiResponse(response);
+  return payload.data || {};
 }
 
 export async function loginOnBackend({ login, password }) {
@@ -152,33 +171,6 @@ export async function uploadAvatarOnBackend({ idToken, imageBase64, mimeType = '
 
   const response = await apiRequest(
     API_ENDPOINTS.authUploadAvatar,
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${idToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        imageBase64,
-        mimeType,
-      }),
-    },
-    AUTH_TIMEOUT_MS
-  );
-
-  const payload = await parseApiResponse(response);
-  return payload.data;
-}
-
-export async function uploadCoverOnBackend({ idToken, imageBase64, mimeType = 'image/jpeg' }) {
-  ensureBackendApiConfigured();
-
-  if (!imageBase64) {
-    throw new Error('Thiếu dữ liệu ảnh để upload.');
-  }
-
-  const response = await apiRequest(
-    API_ENDPOINTS.authUploadCover,
     {
       method: 'POST',
       headers: {

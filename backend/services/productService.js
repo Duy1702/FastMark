@@ -137,7 +137,7 @@ function toPublicVariant(variant) {
     productId: variant.ProductId,
     variantName: variant.VariantName,
     price: variant.Price,
-    quantity: variant.Quantity,
+    quantity: Math.max(0, Number(variant.Quantity) || 0),
     soldCount: variant.SoldCount || 0,
     images: (variant.Images || []).map(toPublicVariantImage),
     status: variant.Status,
@@ -158,9 +158,12 @@ function activeProductFilter(extra = {}) {
 
 function toPublicProduct(product, variants = [], category = null) {
   const normalizedVariants = variants.map(toPublicVariant);
+  const remainingQuantity = normalizedVariants.reduce(
+    (sum, variant) => sum + Math.max(0, Number(variant.quantity) || 0),
+    0
+  );
   const isOutOfStock =
-    normalizedVariants.length > 0 &&
-    normalizedVariants.every((variant) => Number(variant.quantity) <= 0);
+    normalizedVariants.length > 0 && remainingQuantity <= 0;
 
   let minPrice = Number(product.MinPrice) || 0;
   let maxPrice = Number(product.MaxPrice) || 0;
@@ -192,6 +195,8 @@ function toPublicProduct(product, variants = [], category = null) {
     likeCount: product.LikeCount || 0,
     soldCount: product.SoldCount || 0,
     isOutOfStock,
+    remainingQuantity,
+    variantCount: normalizedVariants.length,
     status,
     isUnavailable: status === PRODUCT_STATUS.HIDDEN,
     minPrice,

@@ -93,14 +93,8 @@ export default function FollowConnectionsScreen({
   const [snackbar, setSnackbar] = useState('');
 
   const tabs = useMemo(() => {
-    if (shopId) {
-      return [{ key: 'followers', label: 'Người theo dõi' }];
-    }
-    if (resolvedMode === 'followers') {
-      return [
-        { key: 'followers', label: 'Người theo dõi shop' },
-        { key: 'following', label: 'Đang theo dõi' },
-      ];
+    if (shopId || resolvedMode === 'followers') {
+      return [{ key: 'followers', label: 'Người theo dõi shop' }];
     }
     return [{ key: 'following', label: 'Đang theo dõi' }];
   }, [shopId, resolvedMode]);

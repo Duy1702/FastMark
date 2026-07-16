@@ -5,7 +5,13 @@ async function findUserByFirebaseUid(firebaseUid) {
 }
 
 async function findUserByUserName(userName) {
-  return User.findOne({ UserName: String(userName).trim() });
+  const value = String(userName || "").trim();
+  if (!value) {
+    return null;
+  }
+  return User.findOne({
+    UserName: { $regex: `^${value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, $options: "i" },
+  });
 }
 
 async function findUserByEmail(email) {
@@ -42,20 +48,25 @@ async function updateUserProfile(user, updates = {}) {
       throw error;
     }
     const previousPhone = String(user.Phone || "").trim();
-    if (phone !== previousPhone) {
+    if (phone && phone !== previousPhone) {
+      const existing = await User.findOne({
+        Phone: phone,
+        _id: { $ne: user._id },
+      }).lean();
+      if (existing) {
+        const error = new Error("Số điện thoại đã được sử dụng bởi tài khoản khác.");
+        error.statusCode = 409;
+        throw error;
+      }
       user.SellerPhoneVerified = false;
       user.SellerPhoneVerifyCode = null;
       user.SellerPhoneVerifyCodeExpiresAt = null;
     }
-    user.Phone = phone;
+    user.Phone = phone || null;
   }
 
   if (updates.avatar !== undefined) {
     user.Avatar = String(updates.avatar).trim();
-  }
-
-  if (updates.coverImage !== undefined || updates.anhBia !== undefined) {
-    user.AnhBia = String(updates.coverImage ?? updates.anhBia ?? "").trim();
   }
 
   await user.save();

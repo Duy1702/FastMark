@@ -25,12 +25,11 @@ import {
   requestEmailVerificationCode,
 } from '../../viewmodel/auth/authSlice';
 import { validateEmailVerificationForm } from '../../viewmodel/auth/authFormValidation';
-import AuthBrand from './components/AuthBrand';
 import AuthInput from './components/AuthInput';
 import { AUTH_COLORS, AUTH_RADIUS } from './components/authTheme';
 
 const CODE_TTL_SECONDS = 5 * 60;
-const RESEND_COOLDOWN_SECONDS = 3 * 60;
+const RESEND_COOLDOWN_SECONDS = 2 * 60;
 
 function formatCountdown(secondsLeft) {
   const safeSeconds = Math.max(0, Number(secondsLeft) || 0);
@@ -71,7 +70,7 @@ export default function EmailVerificationScreen() {
   const email = emailVerification?.email || profile?.email || user?.email || '';
   const normalizedCode = normalizeCodeInput(code);
   const isCodeComplete = isSixDigitCode(normalizedCode);
-  const canSubmit = isCodeComplete && !isSubmitting;
+  const canSubmit = isCodeComplete && !isSubmitting && codeSecondsLeft > 0;
   const canResend = !isResending && resendSecondsLeft <= 0;
   const showResendCooldown = resendSecondsLeft > 0;
 
@@ -86,6 +85,11 @@ export default function EmailVerificationScreen() {
     setIsResending(true);
     dispatch(requestEmailVerificationCode({ isResend: false }))
       .unwrap()
+      .then(() => {
+        const now = Date.now();
+        setCodeExpiresAtMs(now + CODE_TTL_SECONDS * 1000);
+        setResendAvailableAtMs(now + RESEND_COOLDOWN_SECONDS * 1000);
+      })
       .catch(() => {})
       .finally(() => {
         setIsResending(false);
@@ -101,10 +105,12 @@ export default function EmailVerificationScreen() {
     const ttl = Number(emailVerification.expiresInSeconds) || CODE_TTL_SECONDS;
     setCodeExpiresAtMs(now + ttl * 1000);
 
-    if (emailVerification.isResend && emailVerification.resendAvailableAt) {
+    if (emailVerification.resendAvailableAt) {
       const resendMs = new Date(emailVerification.resendAvailableAt).getTime();
       if (Number.isFinite(resendMs) && resendMs > now) {
         setResendAvailableAtMs(resendMs);
+      } else if (emailVerification.isResend) {
+        setResendAvailableAtMs(now + RESEND_COOLDOWN_SECONDS * 1000);
       }
     }
   }, [emailVerification]);
@@ -205,32 +211,22 @@ export default function EmailVerificationScreen() {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        <AuthBrand
-          title="Xác minh email"
-          subtitle="Nhập mã 6 số để kích hoạt tài khoản. Mã có hiệu lực trong 5 phút."
-        />
+        <Text style={styles.title}>Xác minh email</Text>
 
-        <View style={styles.card}>
-          <View style={styles.emailBox}>
-            <Text style={styles.emailLabel}>Email cần xác minh</Text>
-            <Text style={styles.emailValue}>{email}</Text>
-          </View>
+        <Text style={styles.emailLabel}>Email cần xác minh</Text>
+        <Text style={styles.emailValue}>{email || '—'}</Text>
 
-          {isResending && !emailVerification ? (
-            <View style={styles.hintBox}>
-              <Text style={styles.hintText}>Đang gửi mã xác minh...</Text>
-            </View>
-          ) : emailVerification ? (
-            <View style={styles.hintBox}>
-              <Text style={styles.hintText}>
-                Mã xác minh đã được gửi tới {email}. Kiểm tra hộp thư đến hoặc thư rác.
-              </Text>
-            </View>
-          ) : null}
+        <Text style={styles.hintText}>
+          {isResending && !emailVerification
+            ? 'Đang gửi mã xác minh...'
+            : codeSecondsLeft > 0
+              ? `Mã đã được gửi đến email của bạn. Vui lòng kiểm tra hộp thư. Mã sẽ hết hạn sau ${formatCountdown(codeSecondsLeft)}.`
+              : 'Mã đã hết hạn. Vui lòng gửi lại mã xác minh để nhận mã mới.'}
+        </Text>
 
+        <View style={styles.form}>
           <AuthInput
             label="Mã xác minh"
-            icon="🔢"
             value={code}
             onChangeText={(value) => {
               setCode(normalizeCodeInput(value));
@@ -238,37 +234,9 @@ export default function EmailVerificationScreen() {
             }}
             keyboardType="number-pad"
             autoComplete="one-time-code"
-            placeholder="123456"
             maxLength={6}
+            error={displayError || ''}
           />
-
-          <View style={styles.timerBox}>
-            <Text style={styles.timerLabel}>Thời gian còn lại của mã</Text>
-            <Text style={[styles.timerValue, codeSecondsLeft <= 0 && styles.timerExpired]}>
-              {formatCountdown(codeSecondsLeft)}
-            </Text>
-            <Text style={styles.timerHint}>
-              {codeSecondsLeft > 0
-                ? 'Mã hết hạn sau thời gian trên'
-                : 'Mã đã hết hạn. Gửi lại mã để nhận mã mới.'}
-            </Text>
-          </View>
-
-          {showResendCooldown ? (
-            <View style={styles.timerBox}>
-              <Text style={styles.timerLabel}>Gửi lại mã sau</Text>
-              <Text style={[styles.timerValue, styles.timerCooldown]}>
-                {formatCountdown(resendSecondsLeft)}
-              </Text>
-              <Text style={styles.timerHint}>Vui lòng đợi hết thời gian trước khi gửi lại</Text>
-            </View>
-          ) : null}
-
-          {displayError ? (
-            <View style={styles.alertBox}>
-              <Text style={styles.alertText}>{displayError}</Text>
-            </View>
-          ) : null}
 
           {successMessage ? (
             <View style={[styles.alertBox, styles.alertSuccess]}>
@@ -286,32 +254,35 @@ export default function EmailVerificationScreen() {
             ]}
           >
             <Text style={styles.primaryButtonText}>
-              {isSubmitting
-                ? 'Đang xác minh...'
-                : isCodeComplete
-                  ? 'Xác minh email'
-                  : 'Nhập đủ 6 chữ số để xác minh'}
-            </Text>
-          </Pressable>
-
-          <Pressable disabled={!canResend} onPress={handleResend} style={styles.resendButton}>
-            <Text style={[styles.resendText, !canResend && styles.resendTextDisabled]}>
-              {isResending
-                ? 'Đang gửi lại mã...'
-                : showResendCooldown
-                  ? `Gửi lại sau ${formatCountdown(resendSecondsLeft)}`
-                  : 'Gửi lại mã xác minh'}
+              {isSubmitting ? 'Đang xác minh...' : 'Xác minh'}
             </Text>
           </Pressable>
 
           <Pressable
-            disabled={isSubmitting || isResending || isLoading}
-            onPress={handleLogout}
-            style={styles.logoutButton}
+            disabled={!canResend}
+            onPress={handleResend}
+            style={styles.resendButton}
           >
-            <Text style={styles.logoutText}>Đăng xuất</Text>
+            <Text style={[styles.resendText, !canResend && styles.resendTextDisabled]}>
+              {isResending
+                ? 'Đang gửi lại mã...'
+                : showResendCooldown
+                  ? `Gửi lại mã xác minh (${formatCountdown(resendSecondsLeft)})`
+                  : 'Gửi lại mã xác minh'}
+            </Text>
           </Pressable>
         </View>
+
+        <Pressable
+          disabled={isSubmitting || isResending || isLoading}
+          onPress={handleLogout}
+          style={({ pressed }) => [
+            styles.logoutButton,
+            pressed && styles.logoutButtonPressed,
+          ]}
+        >
+          <Text style={styles.logoutText}>Đăng xuất</Text>
+        </Pressable>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -325,82 +296,36 @@ const styles = StyleSheet.create({
   content: {
     flexGrow: 1,
     paddingHorizontal: 20,
-    paddingTop: 12,
+    paddingTop: 24,
     paddingBottom: 36,
   },
-  card: {
-    backgroundColor: AUTH_COLORS.card,
-    borderRadius: AUTH_RADIUS.card,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: AUTH_COLORS.border,
-  },
-  emailBox: {
-    backgroundColor: '#f8fafc',
-    borderRadius: 14,
-    padding: 14,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: AUTH_COLORS.border,
+  title: {
+    fontSize: 24,
+    fontWeight: '900',
+    color: AUTH_COLORS.text,
+    marginBottom: 24,
   },
   emailLabel: {
-    fontSize: 13,
+    fontSize: 14,
+    fontWeight: '600',
     color: AUTH_COLORS.textMuted,
     marginBottom: 4,
-    fontWeight: '600',
   },
   emailValue: {
-    fontSize: 15,
+    fontSize: 16,
+    fontWeight: '800',
     color: AUTH_COLORS.text,
-    fontWeight: '700',
-  },
-  hintBox: {
-    backgroundColor: '#f0fdfa',
-    borderRadius: 14,
-    padding: 14,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#99f6e4',
+    marginBottom: 12,
   },
   hintText: {
-    fontSize: 13,
-    lineHeight: 20,
-    color: '#0f766e',
-    fontWeight: '600',
-  },
-  timerBox: {
-    backgroundColor: '#f8fafc',
-    borderRadius: 14,
-    padding: 14,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: AUTH_COLORS.border,
-  },
-  timerLabel: {
-    fontSize: 12,
+    fontSize: 14,
+    lineHeight: 22,
     color: AUTH_COLORS.textMuted,
-    fontWeight: '700',
-    marginBottom: 6,
-    textTransform: 'uppercase',
-    letterSpacing: 0.4,
+    fontWeight: '500',
+    marginBottom: 24,
   },
-  timerValue: {
-    fontSize: 28,
-    fontWeight: '900',
-    color: '#0f766e',
-    fontVariant: ['tabular-nums'],
-  },
-  timerExpired: {
-    color: '#dc2626',
-  },
-  timerCooldown: {
-    color: '#b45309',
-  },
-  timerHint: {
-    marginTop: 6,
-    fontSize: 12,
-    color: AUTH_COLORS.textMuted,
-    fontWeight: '600',
+  form: {
+    flex: 1,
   },
   alertBox: {
     backgroundColor: AUTH_COLORS.errorBg,
@@ -425,25 +350,23 @@ const styles = StyleSheet.create({
     minHeight: 52,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 4,
+    marginTop: 8,
   },
   primaryButtonPressed: {
     backgroundColor: AUTH_COLORS.primaryDark,
   },
   primaryButtonDisabled: {
-    opacity: 0.55,
+    opacity: 0.45,
   },
   primaryButtonText: {
     color: '#ffffff',
     fontSize: 16,
     fontWeight: '800',
-    textAlign: 'center',
-    paddingHorizontal: 12,
   },
   resendButton: {
-    marginTop: 14,
+    marginTop: 16,
     alignItems: 'center',
-    paddingVertical: 8,
+    paddingVertical: 10,
   },
   resendText: {
     color: AUTH_COLORS.primary,
@@ -454,17 +377,21 @@ const styles = StyleSheet.create({
     color: AUTH_COLORS.textMuted,
   },
   logoutButton: {
-    marginTop: 8,
+    marginTop: 24,
+    minHeight: 52,
     alignItems: 'center',
-    paddingVertical: 10,
-    borderRadius: 12,
-    borderWidth: 1,
+    justifyContent: 'center',
+    borderRadius: AUTH_RADIUS.button,
+    borderWidth: 1.5,
     borderColor: AUTH_COLORS.border,
     backgroundColor: '#ffffff',
   },
+  logoutButtonPressed: {
+    opacity: 0.85,
+  },
   logoutText: {
     color: AUTH_COLORS.textMuted,
-    fontSize: 14,
-    fontWeight: '700',
+    fontSize: 15,
+    fontWeight: '800',
   },
 });

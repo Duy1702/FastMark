@@ -34,6 +34,7 @@ function addHoursFromNow(hours) {
 
 export default function ReservationModal({
   visible,
+  loading = false,
   product,
   store,
   dealOfferId,
@@ -48,9 +49,17 @@ export default function ReservationModal({
   const hasPresetVariant = Boolean(preselectedVariantId);
   const isFromDeal = Boolean(dealOfferId);
   const variants = useMemo(() => {
-    const list = (product?.variants || []).filter((v) => (v.quantity ?? 0) > 0);
-    if (list.length > 0) {
-      return list;
+    const list = product?.variants || [];
+    const inStock = list.filter((v) => (v.quantity ?? 0) > 0);
+    if (isFromDeal && preselectedVariantId) {
+      const dealVariant = list.find((v) => String(v.id) === String(preselectedVariantId));
+      if (dealVariant) {
+        const others = inStock.filter((v) => String(v.id) !== String(preselectedVariantId));
+        return [dealVariant, ...others];
+      }
+    }
+    if (inStock.length > 0) {
+      return inStock;
     }
     if (!product?.id) {
       return [];
@@ -61,9 +70,11 @@ export default function ReservationModal({
         variantName: product.name || product.productName || 'Mặc định',
         price: product.minPrice ?? product.price ?? 0,
         quantity: product.isOutOfStock ? 0 : 99,
+        soldCount: product.soldCount || 0,
+        images: [],
       },
     ];
-  }, [product]);
+  }, [product, isFromDeal, preselectedVariantId]);
 
   const [selectedVariantId, setSelectedVariantId] = useState(null);
   const [quantity, setQuantity] = useState(1);
@@ -183,6 +194,23 @@ export default function ReservationModal({
     return null;
   }
 
+  if (loading || (isFromDeal && !product?.id)) {
+    return (
+      <Modal visible animationType="fade" transparent onRequestClose={onClose}>
+        <View style={styles.overlay}>
+          <View style={[styles.sheet, styles.loadingSheet, { paddingBottom: Math.max(insets.bottom, 16) + 12 }]}>
+            <View style={styles.handle} />
+            <ActivityIndicator size="large" color="#0f766e" />
+            <Text style={styles.loadingText}>Đang tải sản phẩm...</Text>
+            <Pressable style={[styles.cancelBtn, styles.loadingCancelBtn]} onPress={onClose}>
+              <Text style={styles.cancelBtnText}>Huỷ</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+    );
+  }
+
   return (
     <Modal visible animationType="slide" transparent onRequestClose={onClose}>
       <View style={styles.overlay}>
@@ -238,6 +266,7 @@ export default function ReservationModal({
               <SelectedVariantCard
                 variant={selectedVariant}
                 productThumbnail={product?.thumbnail || ''}
+                priceOverride={isFromDeal ? unitPrice : null}
               />
             ) : null}
 
@@ -362,6 +391,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingBottom: 28,
     paddingTop: 12,
+  },
+  loadingSheet: {
+    alignItems: 'center',
+    paddingVertical: 28,
+    gap: 14,
+  },
+  loadingText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#64748b',
+  },
+  loadingCancelBtn: {
+    alignSelf: 'stretch',
+    marginTop: 4,
   },
   handle: {
     alignSelf: 'center',

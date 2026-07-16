@@ -235,9 +235,20 @@ export async function getSellerConversationPeerOnBackend(idToken, conversationId
   return payload.data?.peer;
 }
 
-export async function getSellerStatsOnBackend(idToken) {
+export async function getSellerStatsOnBackend(idToken, { range, from, to } = {}) {
+  const params = new URLSearchParams();
+  if (range) {
+    params.set('range', range);
+  }
+  if (from) {
+    params.set('from', from);
+  }
+  if (to) {
+    params.set('to', to);
+  }
+  const query = params.toString();
   const response = await apiRequest(
-    API_ENDPOINTS.sellerStats,
+    query ? `${API_ENDPOINTS.sellerStats}?${query}` : API_ENDPOINTS.sellerStats,
     { method: 'GET', headers: { Authorization: `Bearer ${idToken}` } },
     AUTH_TIMEOUT_MS
   );

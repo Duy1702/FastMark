@@ -18,8 +18,14 @@ export const DEAL_OFFER_STATUS = {
   REJECTED: 2,
 };
 
+/** Who placed the current offeredPrice */
+export const DEAL_OFFER_BY = {
+  BUYER: 1,
+  SELLER: 2,
+};
+
 export const RESERVATION_TAB_LABELS = {
-  pending_price: 'Chờ chấp nhận giá',
+  pending_price: 'Deal giá',
   holding: 'Giữ hàng',
   cancelled: 'Đã hủy',
   completed: 'Hoàn thành',

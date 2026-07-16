@@ -7,6 +7,7 @@ const ShopProfile = require("../models/ShopProfile");
 const User = require("../models/User");
 const { PRODUCT_STATUS } = require("../constants/productStatus");
 const { createNotification } = require("./notificationService");
+const { NOTIFICATION_AUDIENCE } = require("../constants/notificationAudience");
 
 function createServiceError(message, statusCode = 400) {
   const error = new Error(message);
@@ -429,6 +430,7 @@ async function addFavorite(user, productId) {
     await createNotification(seller._id, {
       title: "Sản phẩm được yêu thích",
       content: `${buyerName} đã thích "${productName}".`,
+      audience: NOTIFICATION_AUDIENCE.SELLER,
     });
   }
 

@@ -13,8 +13,11 @@ import {
 } from 'react-native';
 
 import { Ionicons } from '@expo/vector-icons';
+import { useSelector } from 'react-redux';
 
 import { formatPrice, formatPriceRange } from '../../core/utils/productFormat';
+import { getPhoneGateStep } from '../../core/utils/phoneVerification';
+import { selectAuthProfile } from '../../viewmodel/auth/authSelectors';
 import {
   addFavoriteProductOnBackend,
   getFavoriteProductIdsOnBackend,
@@ -30,6 +33,7 @@ import ReportSheet from '../shared/components/ReportSheet';
 import OutOfStockOverlay from '../shared/components/OutOfStockOverlay';
 import CircularBackButton from '../shared/components/CircularBackButton';
 import AvatarBadge from '../shared/components/AvatarBadge';
+import PhoneVerifyGateFlow from '../shared/PhoneVerifyGateFlow';
 import { storeLogger as log } from '../../core/utils/logger';
 import { RESERVATION_TAB } from '../../constants/sellerOrders';
 
@@ -59,7 +63,9 @@ export default function ProductDetailScreen({
   onOrderSuccess,
 }) {
   const insets = useScreenInsets();
+  const profile = useSelector(selectAuthProfile);
   const galleryRef = useRef(null);
+  const pendingTradeActionRef = useRef(null);
   const [product, setProduct] = useState(null);
   const [store, setStore] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -71,6 +77,7 @@ export default function ProductDetailScreen({
   const [dealModalVisible, setDealModalVisible] = useState(false);
   const [reserveModalVisible, setReserveModalVisible] = useState(false);
   const [actionVariantId, setActionVariantId] = useState(null);
+  const [phoneGateVisible, setPhoneGateVisible] = useState(false);
 
   useEffect(() => {
     let isCurrent = true;
@@ -231,6 +238,15 @@ export default function ProductDetailScreen({
     return null;
   }
 
+  function runWithPhoneGate(action) {
+    if (!getPhoneGateStep(profile)) {
+      action();
+      return;
+    }
+    pendingTradeActionRef.current = action;
+    setPhoneGateVisible(true);
+  }
+
   function openReserveFlow() {
     if (product?.isUnavailable || Number(product?.status) === 0) {
       Alert.alert('Không có sẵn', 'Sản phẩm này đã bị người bán xóa hoặc ẩn.');
@@ -241,12 +257,14 @@ export default function ProductDetailScreen({
       Alert.alert('Chọn biến thể', 'Vui lòng chọn phân loại sản phẩm trước khi giữ hàng.');
       return;
     }
-    if (onReserve) {
-      onReserve(product, store, variantForAction);
-      return;
-    }
-    setActionVariantId(variantForAction?.id || null);
-    setReserveModalVisible(true);
+    runWithPhoneGate(() => {
+      if (onReserve) {
+        onReserve(product, store, variantForAction);
+        return;
+      }
+      setActionVariantId(variantForAction?.id || null);
+      setReserveModalVisible(true);
+    });
   }
 
   function openDealFlow() {
@@ -259,12 +277,14 @@ export default function ProductDetailScreen({
       Alert.alert('Chọn biến thể', 'Vui lòng chọn phân loại sản phẩm trước khi deal giá.');
       return;
     }
-    if (onDeal) {
-      onDeal(product, store, variantForAction);
-      return;
-    }
-    setActionVariantId(variantForAction?.id || null);
-    setDealModalVisible(true);
+    runWithPhoneGate(() => {
+      if (onDeal) {
+        onDeal(product, store, variantForAction);
+        return;
+      }
+      setActionVariantId(variantForAction?.id || null);
+      setDealModalVisible(true);
+    });
   }
 
   function handleReservePress() {
@@ -595,6 +615,19 @@ export default function ProductDetailScreen({
         onSuccess={() => {
           setReserveModalVisible(false);
           onOrderSuccess?.(RESERVATION_TAB.HOLDING);
+        }}
+      />
+      <PhoneVerifyGateFlow
+        visible={phoneGateVisible}
+        onCancel={() => {
+          setPhoneGateVisible(false);
+          pendingTradeActionRef.current = null;
+        }}
+        onVerified={() => {
+          setPhoneGateVisible(false);
+          const action = pendingTradeActionRef.current;
+          pendingTradeActionRef.current = null;
+          action?.();
         }}
       />
     </View>

@@ -1,13 +1,25 @@
 const User = require("../models/User");
 const { USER_ROLE } = require("../constants/sellerVerification");
 const { createNotification } = require("./notificationService");
-const { sendPushToTokens } = require("./pushNotificationService");
+const { NOTIFICATION_AUDIENCE } = require("../constants/notificationAudience");
 
 const AUDIENCE = {
   ALL: "all",
   BUYER: "buyer",
   SELLER: "seller",
 };
+
+function mapSystemAudienceToNotificationAudience(audience) {
+  switch (audience) {
+    case AUDIENCE.BUYER:
+      return NOTIFICATION_AUDIENCE.BUYER;
+    case AUDIENCE.SELLER:
+      return NOTIFICATION_AUDIENCE.SELLER;
+    case AUDIENCE.ALL:
+    default:
+      return NOTIFICATION_AUDIENCE.SYSTEM;
+  }
+}
 
 function createServiceError(message, statusCode = 400) {
   const error = new Error(message);
@@ -61,7 +73,7 @@ async function sendSystemNotification(adminUser, { title, content, audience = AU
   }
 
   const recipients = await User.find(buildAudienceFilter(normalizedAudience))
-    .select("_id FcmToken")
+    .select("_id")
     .lean();
 
   if (!recipients.length) {
@@ -74,18 +86,13 @@ async function sendSystemNotification(adminUser, { title, content, audience = AU
       const created = await createNotification(user._id, {
         title: normalizedTitle,
         content: normalizedContent,
+        audience: mapSystemAudienceToNotificationAudience(normalizedAudience),
       });
       if (created) {
         inAppCount += 1;
       }
     })
   );
-
-  const fcmTokens = recipients.map((user) => user.FcmToken).filter(Boolean);
-  const fcmResult = await sendPushToTokens(fcmTokens, {
-    title: normalizedTitle,
-    content: normalizedContent,
-  });
 
   return {
     audience: normalizedAudience,
@@ -94,8 +101,6 @@ async function sendSystemNotification(adminUser, { title, content, audience = AU
     content: normalizedContent,
     recipientCount: recipients.length,
     inAppCount,
-    fcmSent: fcmResult.sent,
-    fcmFailed: fcmResult.failed,
     sentBy: {
       id: String(adminUser._id),
       fullName: adminUser.FullName || "",

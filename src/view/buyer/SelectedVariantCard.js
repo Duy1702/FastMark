@@ -11,6 +11,8 @@ export default function SelectedVariantCard({
   variant,
   productThumbnail = '',
   label = 'Phân loại đã chọn',
+  priceOverride = null,
+  hideStock = false,
 }) {
   if (!variant) {
     return null;
@@ -19,6 +21,10 @@ export default function SelectedVariantCard({
   const thumb = getVariantThumb(variant, productThumbnail);
   const remaining = Math.max(0, Number(variant.quantity) || 0);
   const sold = Math.max(0, Number(variant.soldCount) || 0);
+  const displayPrice =
+    priceOverride != null && Number.isFinite(Number(priceOverride))
+      ? Number(priceOverride)
+      : Number(variant.price) || 0;
 
   return (
     <View style={styles.box}>
@@ -35,10 +41,12 @@ export default function SelectedVariantCard({
           <Text style={styles.name} numberOfLines={2}>
             {variant.variantName || variant.name || 'Loại'}
           </Text>
-          <Text style={styles.price}>{formatPrice(variant.price)}</Text>
-          <Text style={styles.meta}>
-            Còn lại: {remaining > 0 ? remaining : 'Hết'} · Đã bán: {sold}
-          </Text>
+          <Text style={styles.price}>{formatPrice(displayPrice)}</Text>
+          {hideStock ? null : (
+            <Text style={styles.meta}>
+              Còn lại: {remaining > 0 ? remaining : 'Hết'} · Đã bán: {sold}
+            </Text>
+          )}
         </View>
       </View>
     </View>

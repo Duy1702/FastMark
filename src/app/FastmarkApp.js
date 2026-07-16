@@ -1,10 +1,9 @@
-import { useEffect } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, Image, StyleSheet, Text, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { useDispatch, useSelector } from 'react-redux';
 
-import { usePresence } from '../hooks/usePresence';
 import AuthenticatedHome from '../view/auth/AuthenticatedHome';
 import AuthScreen from '../view/auth/AuthScreen';
 import EmailVerificationScreen from '../view/auth/EmailVerificationScreen';
@@ -32,6 +31,8 @@ import { getFirebaseInitConfigError } from '../core/config/firebaseApp';
 import { getStartupDiagnostics, validateGoogleOAuthSetup } from '../core/utils/authDiagnostics';
 import { authLogger as log } from '../core/utils/logger';
 
+const WELCOME_DURATION_MS = 3500;
+
 export default function FastmarkApp() {
   const dispatch = useDispatch();
   const status = useSelector(selectAuthStatus);
@@ -39,8 +40,12 @@ export default function FastmarkApp() {
   const profileStatus = useSelector(selectAuthProfileStatus);
   const pendingGoogle = useSelector(selectPendingGoogle);
   const needsEmailVerification = useSelector(selectNeedsEmailVerification);
+  const [showWelcome, setShowWelcome] = useState(true);
 
-  usePresence();
+  useEffect(() => {
+    const timer = setTimeout(() => setShowWelcome(false), WELCOME_DURATION_MS);
+    return () => clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
     log.info('startup');
@@ -95,6 +100,21 @@ export default function FastmarkApp() {
       return undefined;
     }
   }, [dispatch]);
+
+  if (showWelcome) {
+    return (
+      <SafeAreaProvider>
+        <View style={styles.welcomeScreen}>
+          <StatusBar style="light" />
+          <Image
+            source={require('../../assets/welcome.png')}
+            style={styles.welcomeImage}
+            resizeMode="contain"
+          />
+        </View>
+      </SafeAreaProvider>
+    );
+  }
 
   if (status === 'checking') {
     return (
@@ -151,6 +171,16 @@ export default function FastmarkApp() {
 }
 
 const styles = StyleSheet.create({
+  welcomeScreen: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#0d3d4d',
+  },
+  welcomeImage: {
+    width: '80%',
+    height: '50%',
+  },
   loadingScreen: {
     flex: 1,
     alignItems: 'center',

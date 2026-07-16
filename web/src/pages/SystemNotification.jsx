@@ -60,7 +60,7 @@ export default function SystemNotification() {
       <header className="page-header">
         <div>
           <h1>Gửi thông báo hệ thống</h1>
-          <p>Gửi thông báo tới người dùng qua hệ thống in-app và Firebase Cloud Messaging (FCM).</p>
+          <p>Gửi thông báo tới người dùng qua hệ thống in-app.</p>
         </div>
       </header>
 
@@ -121,8 +121,6 @@ export default function SystemNotification() {
             <div><dt>Đối tượng</dt><dd>{lastResult.audienceLabel}</dd></div>
             <div><dt>Số người nhận</dt><dd>{lastResult.recipientCount}</dd></div>
             <div><dt>Thông báo in-app</dt><dd>{lastResult.inAppCount}</dd></div>
-            <div><dt>FCM gửi thành công</dt><dd>{lastResult.fcmSent}</dd></div>
-            <div><dt>FCM thất bại</dt><dd>{lastResult.fcmFailed}</dd></div>
             <div><dt>Thời gian gửi</dt><dd>{new Date(lastResult.sentAt).toLocaleString('vi-VN')}</dd></div>
           </dl>
         </section>

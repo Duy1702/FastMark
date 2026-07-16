@@ -1,16 +1,20 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   FlatList,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
+import { useSelector } from 'react-redux';
 
 import CircularBackButton from '../shared/components/CircularBackButton';
 import ClearableSearchField from '../shared/components/ClearableSearchField';
@@ -21,13 +25,17 @@ import {
   getBuyerOrdersOnBackend,
   resubmitBuyerDealOnBackend,
 } from '../../api/buyerOpsApi';
-import { RESERVATION_TAB, DEAL_OFFER_STATUS, RESERVATION_STATUS } from '../../constants/sellerOrders';
+import { RESERVATION_TAB, DEAL_OFFER_STATUS, DEAL_OFFER_BY, RESERVATION_STATUS } from '../../constants/sellerOrders';
 import { getCurrentUserIdToken } from '../../repository/authRepository';
 import { formatPrice } from '../../core/utils/productFormat';
-import { formatOrderCode } from '../../core/utils/orderCode';
+import { getPhoneGateStep } from '../../core/utils/phoneVerification';
 import { submitShopReview } from '../../core/utils/orderReview';
 import { useReviewedOrderCodes } from '../../hooks/useReviewedOrderCodes';
+import { selectAuthProfile } from '../../viewmodel/auth/authSelectors';
 import ShopReviewModal from '../shared/components/ShopReviewModal';
+import OrderItemHeader from '../shared/components/OrderItemHeader';
+import PhoneVerifyGateFlow from '../shared/PhoneVerifyGateFlow';
+import { loadProductById, loadStoreById } from '../../viewmodel/store/storeViewModel';
 import ReservationModal from './ReservationModal';
 import BuyerOrderDetailScreen from './BuyerOrderDetailScreen';
 
@@ -85,6 +93,71 @@ function formatDateTime(iso) {
     hour: '2-digit',
     minute: '2-digit',
   });
+}
+
+function formatDealTime(iso) {
+  if (!iso) {
+    return '';
+  }
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const year = date.getFullYear();
+  return `${hours}:${minutes} · ${day}/${month}/${year}`;
+}
+
+function resolveDealDisplayMoney(item) {
+  const qty = Number(item.quantity) || 1;
+  const originalUnit = Number(item.originalPrice) || 0;
+  const originalTotal = originalUnit * qty;
+  let offeredTotal = Number(item.offeredPrice) || 0;
+
+  if (originalUnit > 0 && offeredTotal > 0 && offeredTotal <= originalUnit) {
+    offeredTotal *= qty;
+  }
+
+  return {
+    qty,
+    originalTotal,
+    offeredTotal,
+    lastOfferBy: Number(item.lastOfferBy) || DEAL_OFFER_BY.BUYER,
+  };
+}
+
+function getDealOfferLine(item, money) {
+  const fromSeller = money.lastOfferBy === DEAL_OFFER_BY.SELLER;
+
+  if (item.status === DEAL_OFFER_STATUS.ACCEPTED) {
+    if (fromSeller) {
+      return { label: 'Bạn đã chấp nhận', amount: money.offeredTotal };
+    }
+    return { label: 'Shop đã chấp nhận', amount: money.offeredTotal };
+  }
+
+  if (fromSeller) {
+    return { label: 'Giá shop đề nghị', amount: money.offeredTotal };
+  }
+  return { label: 'Giá bạn đề nghị', amount: money.offeredTotal };
+}
+
+function computeDealDiscountPercent(originalTotal, dealAmount) {
+  if (!originalTotal || originalTotal <= 0 || dealAmount == null) {
+    return 0;
+  }
+  return Math.max(0, Math.round(((originalTotal - dealAmount) / originalTotal) * 100));
+}
+
+function getActiveDealMessage(item) {
+  const lastOfferBy = Number(item?.lastOfferBy) || DEAL_OFFER_BY.BUYER;
+  if (lastOfferBy === DEAL_OFFER_BY.SELLER) {
+    return String(item?.sellerNote || '').trim();
+  }
+  return String(item?.note || '').trim();
 }
 
 function pickStoreName(...candidates) {
@@ -179,10 +252,19 @@ function BuyerOrdersContent({
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState('');
+  const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [resubmitDeal, setResubmitDeal] = useState(null);
   const [resubmitPrice, setResubmitPrice] = useState('');
+  const [resubmitNote, setResubmitNote] = useState('');
   const [priceModalMode, setPriceModalMode] = useState('resubmit');
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearch(searchInput.trim());
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
 
   const loadOrders = useCallback(async (refresh = false) => {
     if (refresh) {
@@ -219,7 +301,7 @@ function BuyerOrdersContent({
   function handleAcceptCounter(deal) {
     Alert.alert(
       'Chấp nhận giá shop',
-      `Bạn đồng ý mua với tổng ${formatPrice(deal.sellerCounterPrice)} (${deal.quantity || 1} sp)?`,
+      `Bạn đồng ý mua với tổng ${formatPrice(deal.offeredPrice)} (${deal.quantity || 1} sp)?`,
       [
         { text: 'Huỷ', style: 'cancel' },
         {
@@ -251,12 +333,14 @@ function BuyerOrdersContent({
     setPriceModalMode('resubmit');
     setResubmitDeal(deal);
     setResubmitPrice(String(deal.offeredPrice || ''));
+    setResubmitNote('');
   }
 
   function handleCounterDeal(deal) {
     setPriceModalMode('counter');
     setResubmitDeal(deal);
     setResubmitPrice('');
+    setResubmitNote('');
   }
 
   useEffect(() => {
@@ -273,6 +357,7 @@ function BuyerOrdersContent({
 
   async function submitResubmitDeal() {
     const offeredPrice = Number(String(resubmitPrice || '').replace(/\D/g, ''));
+    const note = String(resubmitNote || '').trim();
     if (!resubmitDeal || !offeredPrice) {
       Alert.alert('Lỗi', 'Giá không hợp lệ.');
       return;
@@ -284,15 +369,18 @@ function BuyerOrdersContent({
           idToken,
           dealId: resubmitDeal.id,
           offeredPrice,
+          note,
         });
       } else {
         await resubmitBuyerDealOnBackend({
           idToken,
           dealId: resubmitDeal.id,
           offeredPrice,
+          note,
         });
       }
       setResubmitDeal(null);
+      setResubmitNote('');
       loadOrders(true);
     } catch (actionError) {
       Alert.alert(
@@ -329,66 +417,56 @@ function BuyerOrdersContent({
   function renderDealItem({ item }) {
     const statusLabel = DEAL_STATUS_LABELS[item.status] || 'Không rõ';
     const statusStyle = getDealStatusStyle(item.status);
-    const qty = Number(item.quantity) || 1;
-    const originalUnit = Number(item.originalPrice) || 0;
-    const originalTotal = originalUnit * qty;
-    let offeredTotal = Number(item.offeredPrice) || 0;
-    // Legacy deals stored unit offers
-    if (originalUnit > 0 && offeredTotal > 0 && offeredTotal <= originalUnit) {
-      offeredTotal *= qty;
-    }
+    const money = resolveDealDisplayMoney(item);
+    const offerLine = getDealOfferLine(item, money);
+    const discountPercent = computeDealDiscountPercent(money.originalTotal, offerLine.amount);
+    const dealNote = getActiveDealMessage(item);
+    const thumb = item.productThumbnail || item.thumbnail || '';
+    const storeName = pickStoreName(item.storeName, item.shopUsername);
     const canReserve =
       item.status === DEAL_OFFER_STATUS.ACCEPTED && !item.reservationId;
     const canResubmit =
       item.status === DEAL_OFFER_STATUS.REJECTED ||
       (item.status === DEAL_OFFER_STATUS.ACCEPTED && !item.reservationId);
-    const canAcceptCounter =
-      item.status === DEAL_OFFER_STATUS.PENDING && item.sellerCounterPrice;
-    const canCounter =
-      item.status === DEAL_OFFER_STATUS.PENDING && item.sellerCounterPrice;
+    const waitingForBuyer =
+      item.status === DEAL_OFFER_STATUS.PENDING &&
+      Number(item.lastOfferBy) === DEAL_OFFER_BY.SELLER;
+    const waitingForSeller =
+      item.status === DEAL_OFFER_STATUS.PENDING &&
+      Number(item.lastOfferBy) === DEAL_OFFER_BY.BUYER;
+    const canAcceptCounter = waitingForBuyer;
+    const canCounter = waitingForBuyer;
 
     return (
       <View style={styles.card}>
         <Pressable onPress={() => onOpenDetail?.({ kind: 'deal', item: normalizeOrderItem(item) })}>
-          <Text style={styles.orderCode}>{formatOrderCode(item.id)}</Text>
-          <View style={styles.cardTopRow}>
-            <View style={styles.cardIconWrap}>
-              <Text style={styles.cardIcon}>💬</Text>
-            </View>
-            <View style={styles.cardMain}>
-              <View style={styles.cardHeader}>
-                <Text style={styles.cardTitle}>{item.productName}</Text>
-                <View style={[styles.statusBadge, statusStyle.badge]}>
-                  <Text style={[styles.statusBadgeText, statusStyle.text]}>{statusLabel}</Text>
-                </View>
-              </View>
-              <Text style={styles.cardMeta}>
-                {item.variantName} • {pickStoreName(item.storeName, item.shopUsername)} • SL: {qty}
-              </Text>
-              <Text style={styles.priceText}>
-                Tổng {formatPrice(originalTotal)} → {formatPrice(offeredTotal)}
-              </Text>
-              <Text style={styles.cardMeta}>
-                Giảm {item.discountPercent || 0}% • {formatDateTime(item.createdAt)}
-              </Text>
-              {item.sellerCounterPrice ? (
-                <View style={styles.highlightBox}>
-                  <Text style={styles.counterText}>
-                    Shop đề xuất tổng:{' '}
-                    {formatPrice(
-                      Number(item.originalPrice) > 0 &&
-                        Number(item.sellerCounterPrice) <= Number(item.originalPrice)
-                        ? Number(item.sellerCounterPrice) * qty
-                        : item.sellerCounterPrice
-                    )}
-                  </Text>
-                </View>
-              ) : item.status === DEAL_OFFER_STATUS.PENDING ? (
-                <Text style={styles.waitText}>Đang chờ shop phản hồi</Text>
-              ) : null}
-              <Text style={styles.detailLink}>Xem chi tiết →</Text>
-            </View>
-          </View>
+          <OrderItemHeader
+            id={item.id}
+            statusLabel={statusLabel}
+            statusBadgeStyle={statusStyle.badge}
+            statusTextStyle={statusStyle.text}
+            thumbnail={thumb}
+            productName={item.productName || 'Sản phẩm'}
+            variantName={item.variantName || ''}
+            quantity={money.qty}
+            unitPriceText={formatPrice(
+              money.qty > 0 ? Math.round(offerLine.amount / money.qty) : offerLine.amount
+            )}
+            partyLine={storeName ? `Gian hàng: ${storeName}` : ''}
+          >
+            <Text style={styles.infoLine}>
+              Giá niêm yết: {formatPrice(money.originalTotal)}
+            </Text>
+            <Text style={styles.infoLineStrong}>
+              {offerLine.label}: {formatPrice(offerLine.amount)}
+            </Text>
+            {dealNote ? <Text style={styles.infoLineNote}>Lời nhắn: {dealNote}</Text> : null}
+            <Text style={styles.infoLineDiscount}>Giảm {discountPercent}%</Text>
+            <Text style={styles.infoLineMuted}>{formatDealTime(item.createdAt)}</Text>
+            {waitingForSeller ? (
+              <Text style={styles.waitText}>Đang chờ người bán phản hồi</Text>
+            ) : null}
+          </OrderItemHeader>
         </Pressable>
 
         <View style={styles.actionRow}>
@@ -435,6 +513,7 @@ function BuyerOrdersContent({
 
   function renderReservationItem({ item }) {
     const isHolding = activeTab === RESERVATION_TAB.HOLDING;
+    const statusLabel = RESERVATION_STATUS_LABELS[item.status] || 'Không rõ';
     const statusStyle = getReservationStatusStyle(item.status);
     const canCancel =
       isHolding && item.status === RESERVATION_STATUS.PENDING && !item.buyerCancelLocked;
@@ -443,46 +522,52 @@ function BuyerOrdersContent({
       !reviewedOrderCodes?.has(String(item.id));
     const canNavigate = isHolding && item.status === RESERVATION_STATUS.CONFIRMED;
     const storeName = pickStoreName(item.storeName, item.shopUsername, item.shop?.shopName);
+    const productName = item.product?.productName || 'Sản phẩm';
+    const thumb = item.product?.thumbnail || '';
+    const qty = Number(item.quantity) || 0;
 
     return (
       <View style={styles.card}>
         <Pressable
           onPress={() => onOpenDetail?.({ kind: 'reservation', item: normalizeOrderItem(item) })}
         >
-          <Text style={styles.orderCode}>{formatOrderCode(item.id)}</Text>
-          <View style={styles.cardTopRow}>
-            <View style={styles.cardIconWrap}>
-              <Text style={styles.cardIcon}>📦</Text>
-            </View>
-            <View style={styles.cardMain}>
-              <View style={styles.cardHeader}>
-                <Text style={styles.cardTitle}>{item.product?.productName}</Text>
-                <View style={[styles.statusBadge, statusStyle.badge]}>
-                  <Text style={[styles.statusBadgeText, statusStyle.text]}>
-                    {RESERVATION_STATUS_LABELS[item.status] || 'Không rõ'}
-                  </Text>
-                </View>
-              </View>
-              <Text style={styles.cardMeta}>
-                {item.variant?.variantName} • SL: {item.quantity} • {storeName}
+          <OrderItemHeader
+            id={item.id}
+            statusLabel={statusLabel}
+            statusBadgeStyle={statusStyle.badge}
+            statusTextStyle={statusStyle.text}
+            thumbnail={thumb}
+            productName={productName}
+            variantName={item.variant?.variantName || ''}
+            quantity={qty}
+            unitPriceText={formatPrice(
+              item.agreedPrice != null
+                ? Number(item.agreedPrice)
+                : qty > 0
+                  ? Math.round(Number(item.totalAmount || 0) / qty)
+                  : 0
+            )}
+            partyLine={storeName ? `Gian hàng: ${storeName}` : ''}
+          >
+            <Text style={styles.infoLineStrong}>
+              Tổng tiền: {formatPrice(item.totalAmount)}
+            </Text>
+            {item.pickupTime ? (
+              <Text style={styles.infoLineMuted}>
+                Giờ lấy: {formatDealTime(item.pickupTime)}
               </Text>
-              <Text style={styles.priceText}>
-                {formatPrice(item.agreedPrice)}/sp • Tổng {formatPrice(item.totalAmount)}
-              </Text>
-              {item.pickupTime ? (
-                <Text style={styles.pickupText}>🕐 Lấy: {formatDateTime(item.pickupTime)}</Text>
-              ) : (
-                <Text style={styles.cardMeta}>Giữ lúc: {formatDateTime(item.createdAt)}</Text>
-              )}
-              {item.status === RESERVATION_STATUS.CANCELLED && item.cancelReason ? (
-                <Text style={styles.cancelReasonText}>Lý do: {item.cancelReason}</Text>
-              ) : null}
-              <Text style={styles.detailLink}>Xem chi tiết →</Text>
-            </View>
-          </View>
+            ) : (
+              <Text style={styles.infoLineMuted}>Giữ: {formatDealTime(item.createdAt)}</Text>
+            )}
+            {item.status === RESERVATION_STATUS.CANCELLED && item.cancelReason ? (
+              <Text style={styles.infoLineDanger}>Lý do: {item.cancelReason}</Text>
+            ) : null}
+          </OrderItemHeader>
         </Pressable>
 
-        <ReservationProgress status={item.status} />
+        {isHolding || activeTab === RESERVATION_TAB.COMPLETED ? (
+          <ReservationProgress status={item.status} />
+        ) : null}
 
         <View style={styles.actionRow}>
           {canNavigate ? (
@@ -514,7 +599,7 @@ function BuyerOrdersContent({
                 onReviewStore?.({
                   storeId: item.shopId ? String(item.shopId) : '',
                   storeName,
-                  productName: item.product?.productName,
+                  productName,
                   orderCode: item.id ? String(item.id) : '',
                 })
               }
@@ -541,15 +626,11 @@ function BuyerOrdersContent({
     <View style={styles.contentWrap}>
       <View style={styles.searchRow}>
         <ClearableSearchField
-          value={search}
-          onChangeText={setSearch}
+          value={searchInput}
+          onChangeText={setSearchInput}
           placeholder="Tìm sản phẩm, cửa hàng..."
           style={styles.searchField}
-          onSubmitEditing={() => loadOrders(true)}
         />
-        <Pressable style={styles.searchBtn} onPress={() => loadOrders(true)}>
-          <Text style={styles.searchBtnText}>Tìm</Text>
-        </Pressable>
       </View>
 
       {error ? (
@@ -577,45 +658,82 @@ function BuyerOrdersContent({
         }
       />
       <Modal visible={Boolean(resubmitDeal)} transparent animationType="fade">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalBox}>
-            <Text style={styles.modalTitle}>
-              {priceModalMode === 'counter' ? 'Đề nghị tổng mới' : 'Deal giá lại'}
-            </Text>
-            {resubmitDeal ? (
-              <Text style={styles.modalHint}>
-                Tổng niêm yết:{' '}
-                {formatPrice(
-                  (Number(resubmitDeal.originalPrice) || 0) * (resubmitDeal.quantity || 1)
-                )}
-                {' • '}
-                SL: {resubmitDeal.quantity || 1}
+        <KeyboardAvoidingView
+          style={styles.modalOverlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <ScrollView
+            contentContainerStyle={styles.modalScroll}
+            keyboardShouldPersistTaps="handled"
+            bounces={false}
+          >
+            <View style={styles.modalBox}>
+              <Text style={styles.modalTitle}>
+                {priceModalMode === 'counter' ? 'Trả giá lại' : 'Deal giá lại'}
               </Text>
-            ) : null}
-            {priceModalMode === 'counter' && resubmitDeal?.sellerCounterPrice ? (
-              <Text style={styles.modalHint}>
-                Shop đề xuất tổng: {formatPrice(resubmitDeal.sellerCounterPrice)}
+              {resubmitDeal ? (
+                <>
+                  <Text style={styles.modalHint}>
+                    Giá niêm yết:{' '}
+                    {formatPrice(resolveDealDisplayMoney(resubmitDeal).originalTotal)}
+                  </Text>
+                  {priceModalMode === 'counter' ? (
+                    <Text style={styles.modalHint}>
+                      Giá shop đề nghị:{' '}
+                      {formatPrice(resolveDealDisplayMoney(resubmitDeal).offeredTotal)}
+                    </Text>
+                  ) : (
+                    <Text style={styles.modalHint}>
+                      Số lượng: {resubmitDeal.quantity || 1} sp
+                    </Text>
+                  )}
+                </>
+              ) : null}
+
+              <Text style={styles.modalFieldLabel}>
+                {priceModalMode === 'counter' ? 'Tổng giá bạn đề nghị' : 'Tổng đề nghị mới'}
               </Text>
-            ) : null}
-            <TextInput
-              style={styles.modalInput}
-              value={resubmitPrice}
-              onChangeText={(value) => setResubmitPrice(value.replace(/\D/g, ''))}
-              keyboardType="number-pad"
-              placeholder={
-                priceModalMode === 'counter' ? 'Tổng bạn muốn đề nghị' : 'Tổng đề nghị mới'
-              }
-            />
-            <View style={styles.modalActions}>
-              <Pressable style={styles.modalCancel} onPress={() => setResubmitDeal(null)}>
-                <Text style={styles.modalCancelText}>Huỷ</Text>
-              </Pressable>
-              <Pressable style={styles.modalSubmit} onPress={submitResubmitDeal}>
-                <Text style={styles.modalSubmitText}>Gửi</Text>
-              </Pressable>
+              <TextInput
+                style={styles.modalInput}
+                value={resubmitPrice}
+                onChangeText={(value) => setResubmitPrice(value.replace(/\D/g, ''))}
+                keyboardType="number-pad"
+                placeholder="Nhập tổng giá"
+                placeholderTextColor="#94a3b8"
+              />
+
+              <Text style={styles.modalFieldLabel}>Lời nhắn (tuỳ chọn)</Text>
+              <TextInput
+                style={[styles.modalInput, styles.modalNoteInput]}
+                value={resubmitNote}
+                onChangeText={setResubmitNote}
+                placeholder={
+                  priceModalMode === 'counter'
+                    ? 'Ví dụ: bớt thêm cho mình nhé...'
+                    : 'Ví dụ: giá này mình mới mua được...'
+                }
+                placeholderTextColor="#94a3b8"
+                multiline
+              />
+
+              <View style={styles.modalActions}>
+                <Pressable
+                  style={styles.modalCancel}
+                  onPress={() => {
+                    setResubmitDeal(null);
+                    setResubmitPrice('');
+                    setResubmitNote('');
+                  }}
+                >
+                  <Text style={styles.modalCancelText}>Huỷ</Text>
+                </Pressable>
+                <Pressable style={styles.modalSubmit} onPress={submitResubmitDeal}>
+                  <Text style={styles.modalSubmitText}>Gửi</Text>
+                </Pressable>
+              </View>
             </View>
-          </View>
-        </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
@@ -629,14 +747,22 @@ export default function BuyerOrdersScreen({
   onReviewStore,
   initialTab,
   tabRequestKey = 0,
+  onNavigationStateChange,
 }) {
+  const profile = useSelector(selectAuthProfile);
+  const pendingReserveDealRef = useRef(null);
   const [activeTab, setActiveTab] = useState(initialTab || RESERVATION_TAB.HOLDING);
   const [reservationModal, setReservationModal] = useState(null);
   const [reviewTarget, setReviewTarget] = useState(null);
   const [listRefreshKey, setListRefreshKey] = useState(0);
   const [detailTarget, setDetailTarget] = useState(null);
   const [pendingDealModal, setPendingDealModal] = useState(null);
+  const [phoneGateVisible, setPhoneGateVisible] = useState(false);
   const { reviewedOrderCodes, markReviewed } = useReviewedOrderCodes();
+
+  useEffect(() => {
+    onNavigationStateChange?.(Boolean(detailTarget));
+  }, [detailTarget, onNavigationStateChange]);
 
   useEffect(() => {
     if (!initialTab) {
@@ -671,33 +797,60 @@ export default function BuyerOrdersScreen({
     </View>
   );
 
-  function handleReserveFromDeal(deal) {
+  async function openReserveFromDeal(deal) {
     const qty = Number(deal.quantity) || 1;
     const originalUnit = Number(deal.originalPrice) || 0;
-    let agreedTotal = Number(deal.sellerCounterPrice || deal.offeredPrice) || 0;
+    let agreedTotal = Number(deal.offeredPrice) || 0;
     if (originalUnit > 0 && agreedTotal > 0 && agreedTotal <= originalUnit) {
       agreedTotal *= qty;
     }
-    setReservationModal({
-      product: {
-        id: deal.productId,
-        name: deal.productName,
-        variants: [
-          {
-            id: deal.variantId,
-            name: deal.variantName,
-            variantName: deal.variantName,
-            price: deal.originalPrice,
-            quantity: qty,
-          },
-        ],
-      },
-      store: { id: deal.shopId, name: deal.storeName },
-      dealOfferId: deal.id,
-      agreedTotal,
-      dealQuantity: qty,
-      preselectedVariantId: deal.variantId,
-    });
+
+    const productId = deal.productId;
+    if (!productId) {
+      Alert.alert('Lỗi', 'Thiếu thông tin sản phẩm của deal.');
+      return;
+    }
+
+    setReservationModal({ loading: true, dealOfferId: deal.id });
+    try {
+      const [product, store] = await Promise.all([
+        loadProductById(productId),
+        deal.shopId ? loadStoreById(deal.shopId) : Promise.resolve(null),
+      ]);
+      if (!product?.id) {
+        throw new Error('Không tải được sản phẩm.');
+      }
+      const dealVariant = (product.variants || []).find(
+        (variant) => String(variant.id) === String(deal.variantId)
+      );
+      if (!dealVariant) {
+        throw new Error('Không tìm thấy phân loại đã deal.');
+      }
+
+      setReservationModal({
+        product,
+        store: store || {
+          id: deal.shopId,
+          name: deal.storeName || 'Gian hàng',
+        },
+        dealOfferId: deal.id,
+        agreedTotal,
+        dealQuantity: qty,
+        preselectedVariantId: deal.variantId,
+      });
+    } catch (loadError) {
+      setReservationModal(null);
+      Alert.alert('Lỗi', loadError.message || 'Không mở được giữ hàng theo deal.');
+    }
+  }
+
+  function handleReserveFromDeal(deal) {
+    if (!getPhoneGateStep(profile)) {
+      openReserveFromDeal(deal);
+      return;
+    }
+    pendingReserveDealRef.current = deal;
+    setPhoneGateVisible(true);
   }
 
   const body = (
@@ -719,6 +872,7 @@ export default function BuyerOrdersScreen({
       />
       <ReservationModal
         visible={Boolean(reservationModal)}
+        loading={Boolean(reservationModal?.loading)}
         product={reservationModal?.product}
         store={reservationModal?.store}
         dealOfferId={reservationModal?.dealOfferId}
@@ -754,6 +908,21 @@ export default function BuyerOrdersScreen({
             Alert.alert('Cảm ơn bạn', 'Đánh giá đã được gửi.');
           } catch (error) {
             Alert.alert('Lỗi', error.message || 'Không gửi được đánh giá.');
+          }
+        }}
+      />
+      <PhoneVerifyGateFlow
+        visible={phoneGateVisible}
+        onCancel={() => {
+          setPhoneGateVisible(false);
+          pendingReserveDealRef.current = null;
+        }}
+        onVerified={() => {
+          setPhoneGateVisible(false);
+          const deal = pendingReserveDealRef.current;
+          pendingReserveDealRef.current = null;
+          if (deal) {
+            openReserveFromDeal(deal);
           }
         }}
       />
@@ -803,14 +972,15 @@ export default function BuyerOrdersScreen({
   if (embedded) {
     return (
       <View style={styles.screen}>
-        <View style={styles.topBar}>
+        <View style={styles.header}>
           {onBack ? (
-            <CircularBackButton onPress={onBack} variant="light" />
+            <View style={styles.headerRow}>
+              <CircularBackButton onPress={onBack} variant="plain" />
+              <Text style={styles.title}>Đơn hàng</Text>
+            </View>
           ) : (
-            <View style={styles.topBarSpacer} />
+            <Text style={styles.title}>Đơn hàng</Text>
           )}
-          <Text style={styles.title}>Đơn hàng</Text>
-          <View style={styles.topBarSpacer} />
         </View>
         {tabBar}
         <View style={styles.body}>{body}</View>
@@ -820,10 +990,11 @@ export default function BuyerOrdersScreen({
 
   return (
     <View style={styles.screen}>
-      <View style={[styles.topBar, styles.topBarWithBack]}>
-        <CircularBackButton onPress={onBack} variant="light" />
-        <Text style={styles.title}>Lịch sử giữ hàng</Text>
-        <View style={styles.topBarSpacer} />
+      <View style={styles.header}>
+        <View style={styles.headerRow}>
+          <CircularBackButton onPress={onBack} variant="plain" />
+          <Text style={styles.title}>Lịch sử giữ hàng</Text>
+        </View>
       </View>
       {tabBar}
       <View style={styles.body}>{body}</View>
@@ -836,26 +1007,22 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f1f5f9',
   },
-  topBar: {
+  header: {
+    paddingTop: 12,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    backgroundColor: '#ffffff',
+  },
+  headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingTop: 12,
-    paddingBottom: 14,
-    paddingHorizontal: 16,
-    backgroundColor: '#0f766e',
-  },
-  topBarWithBack: {
-    paddingTop: 12,
+    gap: 8,
   },
   title: {
-    flex: 1,
-    marginHorizontal: 12,
-    color: '#ffffff',
-    fontSize: 17,
+    fontSize: 24,
     fontWeight: '900',
-    textAlign: 'center',
+    color: '#0f172a',
   },
-  topBarSpacer: { width: 36 },
   tabRow: {
     flexDirection: 'row',
     width: '100%',
@@ -911,19 +1078,6 @@ const styles = StyleSheet.create({
   searchField: {
     flex: 1,
   },
-  searchBtn: {
-    minWidth: 56,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#0f766e',
-    paddingHorizontal: 12,
-  },
-  searchBtnText: {
-    color: '#ffffff',
-    fontWeight: '800',
-    fontSize: 13,
-  },
   listContent: {
     padding: 16,
     paddingBottom: 24,
@@ -948,17 +1102,75 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   orderCode: {
-    marginBottom: 10,
     color: '#0f766e',
     fontSize: 13,
     fontWeight: '900',
     letterSpacing: 0.3,
   },
-  detailLink: {
-    marginTop: 8,
-    color: '#0f766e',
-    fontSize: 12,
+  dealIdRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginBottom: 12,
+  },
+  dealProductRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 10,
+  },
+  dealThumb: {
+    width: 64,
+    height: 64,
+    borderRadius: 12,
+    backgroundColor: '#e2e8f0',
+  },
+  dealThumbFallback: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#0d7377',
+  },
+  dealThumbFallbackText: {
+    color: '#ffffff',
+    fontSize: 22,
+    fontWeight: '900',
+  },
+  dealProductInfo: {
+    flex: 1,
+    minWidth: 0,
+    gap: 4,
+  },
+  dealProductTitle: {
+    color: '#0f172a',
+    fontSize: 16,
     fontWeight: '800',
+  },
+  dealListedPrice: {
+    marginTop: 2,
+    color: '#64748b',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  dealDiscountText: {
+    marginTop: 4,
+    color: '#b45309',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  dealTimeText: {
+    marginTop: 4,
+    color: '#94a3b8',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  dealNoteText: {
+    marginTop: 2,
+    marginBottom: 2,
+    color: '#334155',
+    fontSize: 13,
+    fontWeight: '600',
+    lineHeight: 18,
   },
   cardTopRow: {
     flexDirection: 'row',
@@ -1067,6 +1279,42 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     marginTop: 4,
+  },
+  infoLine: {
+    color: '#64748b',
+    fontSize: 13,
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  infoLineStrong: {
+    color: '#0f172a',
+    fontSize: 14,
+    fontWeight: '800',
+    marginTop: 2,
+  },
+  infoLineNote: {
+    color: '#475569',
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  infoLineDiscount: {
+    color: '#0f766e',
+    fontSize: 12,
+    fontWeight: '800',
+    marginTop: 2,
+  },
+  infoLineMuted: {
+    color: '#94a3b8',
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  infoLineDanger: {
+    color: '#b91c1c',
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 2,
   },
   progressTrack: {
     flexDirection: 'row',
@@ -1200,7 +1448,10 @@ const styles = StyleSheet.create({
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(15,23,42,0.45)',
-    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalScroll: {
+    flexGrow: 1,
     justifyContent: 'center',
     padding: 24,
   },
@@ -1211,30 +1462,45 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   modalTitle: {
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: '900',
     color: '#0f172a',
-    marginBottom: 12,
-  },
-  modalHint: {
-    fontSize: 14,
-    color: '#b45309',
-    fontWeight: '700',
     marginBottom: 10,
   },
+  modalHint: {
+    color: '#64748b',
+    fontSize: 13,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  modalFieldLabel: {
+    marginTop: 12,
+    marginBottom: 6,
+    color: '#64748b',
+    fontSize: 12,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+  },
   modalInput: {
-    borderWidth: 1,
+    minHeight: 44,
+    borderWidth: 1.5,
     borderColor: '#e2e8f0',
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 15,
-    fontWeight: '600',
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  modalNoteInput: {
+    minHeight: 80,
+    textAlignVertical: 'top',
+    fontWeight: '500',
   },
   modalActions: {
     flexDirection: 'row',
-    gap: 10,
-    marginTop: 16,
+    gap: 8,
+    marginTop: 14,
   },
   modalCancel: {
     flex: 1,
@@ -1242,10 +1508,10 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#f1f5f9',
+    backgroundColor: '#e2e8f0',
   },
   modalCancelText: {
-    color: '#475569',
+    color: '#334155',
     fontWeight: '800',
   },
   modalSubmit: {
@@ -1254,10 +1520,10 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#0f766e',
+    backgroundColor: '#0d7377',
   },
   modalSubmitText: {
     color: '#ffffff',
-    fontWeight: '900',
+    fontWeight: '800',
   },
 });

@@ -7,6 +7,7 @@ const asyncHandler = require("../utils/asyncHandler");
 const router = express.Router();
 
 router.post("/register/email", asyncHandler(authController.registerEmail));
+router.post("/register/availability", asyncHandler(authController.checkRegisterAvailability));
 router.post("/login/email", asyncHandler(authController.loginEmail));
 router.post("/google", asyncHandler(authController.registerOrLoginGoogle));
 router.post("/forgot-password/request", asyncHandler(authController.requestPasswordReset));
@@ -31,13 +32,6 @@ router.post(
   verifyFirebaseToken,
   optionalMultipartAvatar,
   asyncHandler(authController.uploadAvatar)
-);
-
-router.post(
-  "/cover",
-  verifyFirebaseToken,
-  optionalMultipartAvatar,
-  asyncHandler(authController.uploadCover)
 );
 
 router.post("/presence/online", verifyFirebaseToken, asyncHandler(authController.setPresenceOnline));

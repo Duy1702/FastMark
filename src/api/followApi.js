@@ -56,9 +56,6 @@ export async function followShopOnBackend({ idToken, shopId }) {
   return payload.data;
 }
 
-/** @deprecated Dùng followShopOnBackend */
-export const followUserOnBackend = followShopOnBackend;
-
 export async function unfollowShopOnBackend({ idToken, shopId }) {
   const path = shopId
     ? API_ENDPOINTS.buyerFollow(shopId)
@@ -76,9 +73,6 @@ export async function unfollowShopOnBackend({ idToken, shopId }) {
   const payload = await parseApiResponse(response);
   return payload.data;
 }
-
-/** @deprecated Dùng unfollowShopOnBackend */
-export const unfollowUserOnBackend = unfollowShopOnBackend;
 
 export async function getFollowingOnBackend(idToken, params = {}) {
   const response = await apiRequest(

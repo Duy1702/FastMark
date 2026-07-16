@@ -1,16 +1,58 @@
 const Notification = require("../models/Notification.js");
+const {
+  NOTIFICATION_AUDIENCE,
+  normalizeNotificationAudience,
+} = require("../constants/notificationAudience");
 const { emitUserEvent } = require("../socket");
 
-async function createNotification(userId, { title, content } = {}) {
+function buildAudienceListFilter(audience) {
+  const normalized = normalizeNotificationAudience(audience, NOTIFICATION_AUDIENCE.BUYER);
+
+  if (normalized === NOTIFICATION_AUDIENCE.SELLER) {
+    return {
+      $or: [
+        { audience: NOTIFICATION_AUDIENCE.SELLER },
+        { audience: NOTIFICATION_AUDIENCE.SYSTEM },
+        // Thông báo cũ chưa gắn audience: chỉ hiện ở seller để khỏi lẫn sang buyer.
+        { audience: { $exists: false } },
+        { audience: null },
+        { audience: "" },
+      ],
+    };
+  }
+
+  if (normalized === NOTIFICATION_AUDIENCE.SYSTEM) {
+    return {
+      $or: [
+        { audience: NOTIFICATION_AUDIENCE.SYSTEM },
+        { audience: { $exists: false } },
+        { audience: null },
+        { audience: "" },
+      ],
+    };
+  }
+
+  // buyer: không lấy thông báo seller / legacy chưa gắn (tránh lẫn shop → buyer)
+  return {
+    audience: { $in: [NOTIFICATION_AUDIENCE.BUYER, NOTIFICATION_AUDIENCE.SYSTEM] },
+  };
+}
+
+async function createNotification(userId, { title, content, audience } = {}) {
   if (!userId) {
     return null;
   }
 
+  const normalizedAudience = normalizeNotificationAudience(
+    audience,
+    NOTIFICATION_AUDIENCE.SYSTEM
+  );
   const now = new Date();
   const notification = await Notification.create({
     userId,
     title: String(title || "").trim(),
     content: String(content || "").trim(),
+    audience: normalizedAudience,
     isRead: 0,
     CreatedAt: now,
     UpdatedAt: now,
@@ -20,6 +62,7 @@ async function createNotification(userId, { title, content } = {}) {
     id: notification._id,
     title: notification.title,
     content: notification.content,
+    audience: notification.audience,
     isRead: notification.isRead,
     createdAt: notification.CreatedAt,
   };
@@ -35,12 +78,13 @@ function toClientNotification(notification) {
     title: notification.title || "",
     content: notification.content || "",
     body: notification.content || "",
+    audience: notification.audience || NOTIFICATION_AUDIENCE.SYSTEM,
     isRead: Number(notification.isRead) === 1,
     createdAt: notification.CreatedAt || null,
   };
 }
 
-async function listNotificationsForUser(userId, { page = 1, limit = 50 } = {}) {
+async function listNotificationsForUser(userId, { page = 1, limit = 50, audience } = {}) {
   if (!userId) {
     return { items: [], pagination: { page: 1, limit: 50, total: 0, totalPages: 1 } };
   }
@@ -48,14 +92,14 @@ async function listNotificationsForUser(userId, { page = 1, limit = 50 } = {}) {
   const currentPage = Math.max(1, Number(page) || 1);
   const pageSize = Math.min(100, Math.max(1, Number(limit) || 50));
   const skip = (currentPage - 1) * pageSize;
+  const filter = {
+    userId,
+    ...buildAudienceListFilter(audience),
+  };
 
   const [items, total] = await Promise.all([
-    Notification.find({ userId })
-      .sort({ CreatedAt: -1 })
-      .skip(skip)
-      .limit(pageSize)
-      .lean(),
-    Notification.countDocuments({ userId }),
+    Notification.find(filter).sort({ CreatedAt: -1 }).skip(skip).limit(pageSize).lean(),
+    Notification.countDocuments(filter),
   ]);
 
   return {
@@ -69,7 +113,7 @@ async function listNotificationsForUser(userId, { page = 1, limit = 50 } = {}) {
   };
 }
 
-async function markNotificationAsRead(userId, notificationId) {
+async function markNotificationAsRead(userId, notificationId, { audience } = {}) {
   if (!userId || !notificationId) {
     const error = new Error("Thiếu thông báo.");
     error.statusCode = 400;
@@ -77,8 +121,14 @@ async function markNotificationAsRead(userId, notificationId) {
   }
 
   const now = new Date();
+  const filter = {
+    _id: notificationId,
+    userId,
+    ...buildAudienceListFilter(audience || NOTIFICATION_AUDIENCE.BUYER),
+  };
+
   const notification = await Notification.findOneAndUpdate(
-    { _id: notificationId, userId },
+    filter,
     { $set: { isRead: 1, UpdatedAt: now } },
     { new: true }
   );
@@ -92,14 +142,18 @@ async function markNotificationAsRead(userId, notificationId) {
   return toClientNotification(notification);
 }
 
-async function markAllNotificationsAsRead(userId) {
+async function markAllNotificationsAsRead(userId, { audience } = {}) {
   if (!userId) {
     return { updated: 0 };
   }
 
   const now = new Date();
   const result = await Notification.updateMany(
-    { userId, isRead: { $ne: 1 } },
+    {
+      userId,
+      isRead: { $ne: 1 },
+      ...buildAudienceListFilter(audience || NOTIFICATION_AUDIENCE.BUYER),
+    },
     { $set: { isRead: 1, UpdatedAt: now } }
   );
 
@@ -111,4 +165,5 @@ module.exports = {
   listNotificationsForUser,
   markNotificationAsRead,
   markAllNotificationsAsRead,
+  NOTIFICATION_AUDIENCE,
 };

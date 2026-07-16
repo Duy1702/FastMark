@@ -32,7 +32,12 @@ function capitalizeFirstLetter(value = '') {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
-export default function NotificationDetailScreen({ notification, onBack, onMarkedRead }) {
+export default function NotificationDetailScreen({
+  notification,
+  onBack,
+  onMarkedRead,
+  audience = 'buyer',
+}) {
   const [isRead, setIsRead] = useState(Boolean(notification?.isRead));
   const title = capitalizeFirstLetter(notification?.title || 'Thông báo');
   const body = notification?.content || notification?.body || '';
@@ -52,7 +57,7 @@ export default function NotificationDetailScreen({ notification, onBack, onMarke
 
     (async () => {
       try {
-        await markNotificationReadOnBackend(id);
+        await markNotificationReadOnBackend(id, audience);
         if (cancelled) {
           return;
         }
@@ -66,7 +71,7 @@ export default function NotificationDetailScreen({ notification, onBack, onMarke
     return () => {
       cancelled = true;
     };
-  }, [notification?.id, notification?.isRead, onMarkedRead]);
+  }, [audience, notification?.id, notification?.isRead, onMarkedRead]);
 
   return (
     <View style={styles.screen}>

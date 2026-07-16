@@ -6,11 +6,17 @@ import {
   setPresenceOfflineOnBackend,
   setPresenceOnlineOnBackend,
 } from '../api/presenceApi';
+import { APP_MODE_BUYER, APP_MODE_SELLER } from './useAppMode';
 import { selectAuthStatus } from '../viewmodel/auth/authSelectors';
 
-export function usePresence() {
+/**
+ * Presence cá nhân (người mua). Chỉ online khi đang ở chế độ buyer.
+ * Khi chuyển sang seller → đánh dấu offline để không còn "Đang hoạt động" phía tài khoản cá nhân.
+ */
+export function usePresence(appMode = APP_MODE_BUYER) {
   const authStatus = useSelector(selectAuthStatus);
   const appStateRef = useRef(AppState.currentState);
+  const isBuyerMode = appMode !== APP_MODE_SELLER;
 
   useEffect(() => {
     if (authStatus !== 'authenticated') {
@@ -20,6 +26,10 @@ export function usePresence() {
     let isActive = true;
 
     async function markOnline() {
+      if (!isBuyerMode || appStateRef.current !== 'active') {
+        return;
+      }
+
       try {
         await setPresenceOnlineOnBackend();
       } catch {
@@ -35,13 +45,17 @@ export function usePresence() {
       }
     }
 
-    markOnline();
+    if (isBuyerMode) {
+      markOnline();
+    } else {
+      markOffline();
+    }
 
     const subscription = AppState.addEventListener('change', (nextState) => {
       const prevState = appStateRef.current;
       appStateRef.current = nextState;
 
-      if (!isActive) {
+      if (!isActive || !isBuyerMode) {
         return;
       }
 
@@ -54,8 +68,10 @@ export function usePresence() {
 
     return () => {
       isActive = false;
-      markOffline();
+      if (isBuyerMode) {
+        markOffline();
+      }
       subscription.remove();
     };
-  }, [authStatus]);
+  }, [authStatus, isBuyerMode]);
 }
