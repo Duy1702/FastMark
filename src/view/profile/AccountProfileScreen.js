@@ -3,7 +3,6 @@ import {
   ActivityIndicator,
   Alert,
   Image,
-  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -13,26 +12,23 @@ import {
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { useDispatch, useSelector } from 'react-redux';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useScreenInsets } from '../../hooks/useScreenInsets';
 
 import {
   selectAuthProfile,
   selectAuthUser,
   selectCanSwitchToSeller,
-  selectSellerVerification,
-  selectUserRole,
 } from '../../viewmodel/auth/authSelectors';
 import { uploadUserAvatar, syncSellerAccess, loadUserProfile, applyShopSettingsToProfile, clearAuthFeedback } from '../../viewmodel/auth/authSlice';
-import {
-  getSellerRegisterButtonLabel,
-} from '../seller/sellerRegistrationFlow';
 import { getMyProductsOnBackend } from '../../api/productApi';
 import { getFavoriteProductIdsOnBackend } from '../../api/favoriteApi';
-import { getSellerShopSettingsOnBackend, uploadSellerShopAvatarOnBackend } from '../../api/sellerOpsApi';
+import { getSellerShopSettingsOnBackend } from '../../api/sellerOpsApi';
 import { getCurrentUserIdToken } from '../../repository/authRepository';
 import StarRating from '../store/components/StarRating';
-import BuyerQuickMenu from '../shared/components/BuyerQuickMenu';
+import ProfileSideDrawer from '../shared/components/ProfileSideDrawer';
 import AvatarBadge from '../shared/components/AvatarBadge';
+import { formatPrice } from '../../core/utils/productFormat';
+import { buyerTheme as t } from '../../core/theme/buyerTheme';
 
 function pickShopDescription(...values) {
   for (const value of values) {
@@ -142,35 +138,32 @@ export default function AccountProfileScreen({
   onOpenInbox,
   onOpenBuyerOrders,
   onOpenFavoriteProducts,
+  onOpenReport,
+  onOpenWallet,
+  onOpenWalletTopUp,
   onOpenSellerShopSettings,
   onOpenSellerReviews,
   onOpenSellerOrders,
   onOpenSellerStats,
+  onOpenSellerProducts,
+  onOpenSellerSubscription,
+  onOpenSellerBanner,
   onOpenBuyerView,
+  showSellerHub = false,
   onStartSellerRegister,
+  onOpenShopTab,
   onSwitchToSellerMode,
   onSwitchToBuyerMode,
   onLogout,
   onOpenFollowConnections,
 }) {
-  const insets = useSafeAreaInsets();
+  const screenInsets = useScreenInsets();
   const dispatch = useDispatch();
   const profile = useSelector(selectAuthProfile);
   const user = useSelector(selectAuthUser);
-  const role = useSelector(selectUserRole);
   const canSwitchToSeller = useSelector(selectCanSwitchToSeller);
   const showAsSeller = profileMode === 'seller';
   const showAsBuyer = profileMode === 'buyer';
-  const sellerVerification = useSelector(selectSellerVerification);
-  const sellerButtonLabel = getSellerRegisterButtonLabel({ role, verification: sellerVerification });
-
-  function handleSellerAction() {
-    if (canSwitchToSeller) {
-      onSwitchToSellerMode?.();
-      return;
-    }
-    onStartSellerRegister?.();
-  }
   const [menuOpen, setMenuOpen] = useState(false);
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const [sellerProducts, setSellerProducts] = useState([]);
@@ -296,17 +289,9 @@ export default function AccountProfileScreen({
   const displayName = profile?.fullName || user?.displayName || 'Fastmark user';
   const userName = profile?.userName || user?.email?.split('@')[0] || '';
   const personalAvatarUrl = resolveImageUrl(profile?.photoUrl);
-  const shopAvatarUrl = resolveImageUrl(
-    shopContact?.avatar ||
-      shopContact?.shopAvatar ||
-      shopSettings?.avatar ||
-      shopSettings?.shopAvatar ||
-      profile?.shopAvatar
-  );
-  // Buyer avt (User.Avatar) và shop avt (ShopProfile.avatar) tách hoàn toàn — không fallback lẫn nhau.
-  const avatarUrl = showAsSeller ? shopAvatarUrl : personalAvatarUrl;
-  const shopDisplayName = shopContact?.shopName || shopSettings?.shopName || profile?.shopName || '';
-  const avatarLabelName = showAsSeller ? shopDisplayName || displayName : displayName;
+  // Tài khoản luôn dùng identity + avatar cá nhân; shop chỉ có bio/giờ/địa chỉ.
+  const avatarUrl = personalAvatarUrl;
+  const avatarLabelName = displayName;
 
   const shopDescription = pickShopDescription(
     shopSettings?.description,
@@ -315,7 +300,6 @@ export default function AccountProfileScreen({
     shopContact?.shopDescription,
     profile?.shopDescription
   );
-  // Shop tiểu sử chỉ hiện ở chế độ người bán — không gắn vào tài khoản cá nhân.
   const showShopDescription = showAsSeller;
   const shopDescriptionText =
     shopDescription || 'Chưa có mô tả. Hãy cập nhật trong Cài đặt shop.';
@@ -336,11 +320,9 @@ export default function AccountProfileScreen({
       reviews: profile?.totalReviews ?? 0,
       rating: profile?.averageRating ?? 0,
       following: profile?.followingCount ?? 0,
-      followers: showAsSeller
-        ? shopContact?.followersCount ?? profile?.followersCount ?? 0
-        : 0,
+      followers: profile?.followersCount ?? 0,
     }),
-    [catalogStats, showAsSeller, profile, shopContact]
+    [catalogStats, showAsSeller, profile]
   );
 
   async function handlePickAvatar() {
@@ -351,26 +333,6 @@ export default function AccountProfileScreen({
       }
 
       setIsUploadingAvatar(true);
-
-      if (showAsSeller) {
-        const idToken = await getCurrentUserIdToken();
-        if (!idToken) {
-          throw new Error('Phiên đăng nhập đã hết hạn.');
-        }
-
-        const result = await uploadSellerShopAvatarOnBackend({
-          idToken,
-          imageBase64: picked.imageBase64,
-          mimeType: picked.mimeType,
-        });
-        const shop = result?.shop;
-        if (shop) {
-          setShopContact(shop);
-          dispatch(applyShopSettingsToProfile(shop));
-        }
-        Alert.alert('Thành công', result?.message || 'Cập nhật ảnh gian hàng thành công.');
-        return;
-      }
 
       await dispatch(
         uploadUserAvatar({
@@ -395,30 +357,27 @@ export default function AccountProfileScreen({
 
   return (
     <View style={styles.screen}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingBottom: screenInsets.tabRootScrollPaddingBottom },
+        ]}
+      >
         <View style={styles.profileCard}>
-          <View style={styles.profileTopBar}>
-            <View style={styles.profileTopBarSpacer} />
-            {showAsSeller ? (
+          {showAsSeller ? (
+            <View style={styles.profileTopBar}>
+              <View style={styles.profileTopBarSpacer} />
               <Pressable
-                onPress={() => setMenuOpen((current) => !current)}
+                onPress={() => setMenuOpen(true)}
                 style={({ pressed }) => [styles.iconButton, pressed && styles.buttonPressed]}
                 accessibilityRole="button"
                 accessibilityLabel="Tiện ích"
               >
                 <Ionicons name="menu-outline" size={22} color="#0f172a" />
               </Pressable>
-            ) : (
-              <BuyerQuickMenu
-                sellerButtonLabel={sellerButtonLabel}
-                onEditAccount={() => onEditAccount?.()}
-                onSellerAction={handleSellerAction}
-                onLogout={() => onLogout?.()}
-                style={styles.buyerMenuWrap}
-                buttonStyle={styles.iconButton}
-              />
-            )}
-          </View>
+            </View>
+          ) : null}
 
           <View style={styles.profileHeaderRow}>
             <ProfileAvatar
@@ -429,21 +388,11 @@ export default function AccountProfileScreen({
             />
             <View style={styles.profileHeaderInfo}>
               <Text style={styles.displayName} numberOfLines={1}>
-                {showAsSeller && shopDisplayName ? shopDisplayName : displayName}
+                {displayName}
               </Text>
-              {showAsSeller && shopDisplayName ? (
-                <Text style={styles.personalNameHint} numberOfLines={1}>
-                  Chủ shop: {displayName}
-                </Text>
-              ) : null}
               {userName ? (
                 <Text style={styles.userName} numberOfLines={1}>
                   @{userName}
-                </Text>
-              ) : null}
-              {showAsSeller && (shopContact?.shopUsername || shopSettings?.shopUsername) ? (
-                <Text style={styles.shopUsername} numberOfLines={1}>
-                  Shop: @{shopContact?.shopUsername || shopSettings?.shopUsername}
                 </Text>
               ) : null}
               {showAsSeller && (shopContact?.categoryName || shopSettings?.categoryName) ? (
@@ -464,60 +413,123 @@ export default function AccountProfileScreen({
 
           {showShopDescription ? (
             isLoadingShopContact && !shopDescription ? (
-              <ActivityIndicator color="#0d7377" style={styles.contactLoading} />
+              <ActivityIndicator color="#076F32" style={styles.contactLoading} />
             ) : (
               <Text style={styles.bioText}>{shopDescriptionText}</Text>
             )
           ) : null}
 
           <View style={styles.followRow}>
+            <Pressable onPress={() => onOpenFollowConnections?.('following')}>
+              <Text style={styles.followText}>
+                <Text style={styles.followValue}>{formatCount(stats.following)}</Text> đang theo dõi
+              </Text>
+            </Pressable>
+            <Text style={styles.followDivider}>•</Text>
+            <Pressable onPress={() => onOpenFollowConnections?.('followers')}>
+              <Text style={styles.followText}>
+                <Text style={styles.followValue}>{formatCount(stats.followers)}</Text> người theo dõi
+              </Text>
+            </Pressable>
             {showAsBuyer ? (
               <>
-                <Pressable onPress={() => onOpenFollowConnections?.('following')}>
-                  <Text style={styles.followText}>
-                    <Text style={styles.followValue}>{formatCount(stats.following)}</Text> đang theo dõi
-                  </Text>
-                </Pressable>
                 <Text style={styles.followDivider}>•</Text>
                 <Pressable onPress={() => onOpenFavoriteProducts?.()}>
                   <Text style={styles.followText}>
-                    <Text style={styles.followValue}>{formatCount(favoriteCount)}</Text> sản phẩm yêu
-                    thích
+                    <Text style={styles.followValue}>{formatCount(favoriteCount)}</Text> yêu thích
                   </Text>
                 </Pressable>
               </>
             ) : null}
-            {showAsSeller ? (
-              <View style={styles.shopStatsRow}>
-                <Pressable
-                  onPress={() => onOpenFollowConnections?.('followers')}
-                  style={styles.shopStatItem}
-                >
-                  <Text style={styles.shopStatValue}>{formatCount(stats.followers)}</Text>
-                  <Text style={styles.shopStatLabel}>Theo dõi</Text>
-                </Pressable>
-                <View style={styles.shopStatItem}>
-                  <Text style={styles.shopStatValue}>{formatCount(stats.products)}</Text>
-                  <Text style={styles.shopStatLabel}>Sản phẩm</Text>
-                </View>
-                <View style={styles.shopStatItem}>
-                  <Text style={styles.shopStatValue}>{formatCount(stats.sold)}</Text>
-                  <Text style={styles.shopStatLabel}>Đã bán</Text>
-                </View>
-                <View style={styles.shopStatItem}>
-                  <Text style={styles.shopStatValue}>{formatCount(stats.likes)}</Text>
-                  <Text style={styles.shopStatLabel}>Lượt thích</Text>
-                </View>
-              </View>
-            ) : null}
           </View>
+          {showAsSeller ? (
+            <View style={styles.shopStatsRow}>
+              <View style={styles.shopStatItem}>
+                <Text style={styles.shopStatValue}>{formatCount(stats.products)}</Text>
+                <Text style={styles.shopStatLabel}>Sản phẩm</Text>
+              </View>
+              <View style={styles.shopStatItem}>
+                <Text style={styles.shopStatValue}>{formatCount(stats.sold)}</Text>
+                <Text style={styles.shopStatLabel}>Đã bán</Text>
+              </View>
+              <View style={styles.shopStatItem}>
+                <Text style={styles.shopStatValue}>{formatCount(stats.likes)}</Text>
+                <Text style={styles.shopStatLabel}>Lượt thích</Text>
+              </View>
+            </View>
+          ) : null}
+
+          {showAsBuyer ? (
+            <Pressable
+              style={({ pressed }) => [styles.walletCard, pressed && styles.buttonPressed]}
+              onPress={() => onOpenWallet?.()}
+            >
+              <View style={styles.walletCardTop}>
+                <Ionicons name="wallet-outline" size={18} color="#fff" />
+                <Text style={styles.walletCardTitle}>Ví FastMark</Text>
+              </View>
+              <Text style={styles.walletCardBalance}>
+                {formatPrice(profile?.walletBalance || 0)}
+              </Text>
+              <Pressable
+                onPress={(event) => {
+                  event?.stopPropagation?.();
+                  onOpenWalletTopUp?.();
+                }}
+                hitSlop={8}
+              >
+                <Text style={styles.walletCardCta}>Nạp tiền ngay →</Text>
+              </Pressable>
+            </Pressable>
+          ) : null}
+
+          {showAsBuyer ? (
+            <View style={styles.buyerMenuList}>
+              <Pressable
+                style={styles.buyerMenuItem}
+                onPress={() => onOpenFavoriteProducts?.()}
+              >
+                <View style={styles.buyerMenuIcon}>
+                  <Ionicons name="heart-outline" size={18} color="#2563eb" />
+                </View>
+                <Text style={styles.buyerMenuText}>Sản phẩm yêu thích</Text>
+                <Ionicons name="chevron-forward" size={18} color="#94a3b8" />
+              </Pressable>
+              <Pressable style={styles.buyerMenuItem} onPress={() => onEditAccount?.()}>
+                <View style={styles.buyerMenuIcon}>
+                  <Ionicons name="create-outline" size={18} color="#2563eb" />
+                </View>
+                <Text style={styles.buyerMenuText}>Chỉnh sửa hồ sơ</Text>
+                <Ionicons name="chevron-forward" size={18} color="#94a3b8" />
+              </Pressable>
+              <Pressable
+                style={styles.buyerMenuItem}
+                onPress={() => onOpenReport?.()}
+              >
+                <View style={styles.buyerMenuIcon}>
+                  <Ionicons name="flag-outline" size={18} color="#2563eb" />
+                </View>
+                <Text style={styles.buyerMenuText}>Report</Text>
+                <Ionicons name="chevron-forward" size={18} color="#94a3b8" />
+              </Pressable>
+              <Pressable
+                style={[styles.buyerMenuItem, styles.buyerMenuLogout]}
+                onPress={() => onLogout?.()}
+              >
+                <View style={[styles.buyerMenuIcon, styles.buyerMenuLogoutIcon]}>
+                  <Ionicons name="log-out-outline" size={18} color="#dc2626" />
+                </View>
+                <Text style={[styles.buyerMenuText, styles.buyerMenuLogoutText]}>Đăng xuất</Text>
+              </Pressable>
+            </View>
+          ) : null}
 
           {showAsSeller ? (
             <>
               <View style={styles.contactCard}>
                 <Text style={styles.contactTitle}>Thông tin liên hệ</Text>
                 {isLoadingShopContact ? (
-                  <ActivityIndicator color="#0d7377" style={styles.contactLoading} />
+                  <ActivityIndicator color="#076F32" style={styles.contactLoading} />
                 ) : (
                   <>
                     <View style={styles.contactRow}>
@@ -572,6 +584,24 @@ export default function AccountProfileScreen({
                   <Text style={styles.sellerToolText}>Cài đặt shop</Text>
                 </Pressable>
                 <Pressable
+                  onPress={() => onOpenSellerSubscription?.()}
+                  style={({ pressed }) => [
+                    styles.sellerToolButton,
+                    pressed && styles.buttonPressed,
+                  ]}
+                >
+                  <Text style={styles.sellerToolText}>Gói bán</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => onOpenSellerBanner?.()}
+                  style={({ pressed }) => [
+                    styles.sellerToolButton,
+                    pressed && styles.buttonPressed,
+                  ]}
+                >
+                  <Text style={styles.sellerToolText}>Banner</Text>
+                </Pressable>
+                <Pressable
                   onPress={() => onOpenSellerReviews?.()}
                   style={({ pressed }) => [
                     styles.sellerToolButton,
@@ -583,74 +613,75 @@ export default function AccountProfileScreen({
               </View>
             </>
           ) : null}
-
-          {showAsBuyer ? (
-            <View style={styles.actionRow}>
-              <Pressable
-                onPress={onEditAccount}
-                style={({ pressed }) => [styles.primaryActionButton, pressed && styles.buttonPressed]}
-              >
-                <Text style={styles.primaryActionText}>Chỉnh sửa hồ sơ</Text>
-              </Pressable>
-              <Pressable
-                onPress={handleSellerAction}
-                style={({ pressed }) => [styles.secondaryActionButton, pressed && styles.buttonPressed]}
-              >
-                <Text style={styles.secondaryActionText}>{sellerButtonLabel}</Text>
-              </Pressable>
-            </View>
-          ) : null}
         </View>
       </ScrollView>
 
-      {menuOpen && showAsSeller ? (
-        <Modal
-          visible
-          transparent
-          animationType="fade"
-          statusBarTranslucent
-          onRequestClose={() => setMenuOpen(false)}
-        >
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Đóng menu"
-            onPress={() => setMenuOpen(false)}
-            style={styles.menuBackdrop}
-          >
-            <Pressable
-              onPress={() => {}}
-              style={[styles.menuDropdown, { top: insets.top + 72 }]}
-            >
-              <Pressable
-                onPress={() => {
-                  setMenuOpen(false);
-                  onOpenSellerShopSettings?.();
-                }}
-                style={styles.menuItem}
-              >
-                <Text style={styles.menuItemText}>Cài đặt cửa hàng</Text>
-              </Pressable>
-              <Pressable
-                onPress={() => {
-                  setMenuOpen(false);
-                  onOpenBuyerView?.();
-                }}
-                style={styles.menuItem}
-              >
-                <Text style={styles.menuItemText}>Chế độ xem</Text>
-              </Pressable>
-              <Pressable
-                onPress={() => {
-                  setMenuOpen(false);
-                  onSwitchToBuyerMode?.();
-                }}
-                style={[styles.menuItem, styles.menuItemLast]}
-              >
-                <Text style={styles.menuItemText}>Chuyển sang người mua</Text>
-              </Pressable>
-            </Pressable>
-          </Pressable>
-        </Modal>
+      {showAsSeller ? (
+        <ProfileSideDrawer
+          visible={menuOpen}
+          onClose={() => setMenuOpen(false)}
+          displayName={displayName}
+          userName={userName}
+          photoUrl={avatarUrl}
+          walletBalance={Number(profile?.walletBalance) || 0}
+          sections={[
+            {
+              key: 'resources',
+              title: 'Tài nguyên',
+              items: [
+                {
+                  key: 'wallet',
+                  icon: 'wallet-outline',
+                  label: 'Ví FastMark',
+                  onPress: () => onOpenWallet?.(),
+                },
+              ],
+            },
+            {
+              key: 'shop',
+              title: 'Công cụ gian hàng',
+              items: [
+                {
+                  key: 'settings',
+                  icon: 'storefront-outline',
+                  label: 'Cài đặt cửa hàng',
+                  onPress: () => onOpenSellerShopSettings?.(),
+                },
+                {
+                  key: 'preview',
+                  icon: 'eye-outline',
+                  label: 'Chế độ xem',
+                  onPress: () => onOpenBuyerView?.(),
+                },
+                {
+                  key: 'switch-buyer',
+                  icon: 'person-outline',
+                  label: 'Chuyển sang người mua',
+                  onPress: () => onSwitchToBuyerMode?.(),
+                },
+              ],
+            },
+            {
+              key: 'account',
+              title: 'Tài khoản',
+              items: [
+                {
+                  key: 'edit',
+                  icon: 'create-outline',
+                  label: 'Sửa thông tin tài khoản',
+                  onPress: () => onEditAccount?.(),
+                },
+                {
+                  key: 'logout',
+                  icon: 'log-out-outline',
+                  label: 'Đăng xuất',
+                  danger: true,
+                  onPress: () => onLogout?.(),
+                },
+              ],
+            },
+          ]}
+        />
       ) : null}
     </View>
   );
@@ -664,7 +695,6 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingTop: 8,
-    paddingBottom: 28,
   },
   profileCard: {
     marginTop: 0,
@@ -699,47 +729,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#e2e8f0',
   },
-  buyerMenuWrap: {
-    position: 'relative',
-  },
   iconButtonText: {
     fontSize: 18,
-  },
-  menuBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.25)',
-  },
-  menuDropdown: {
-    position: 'absolute',
-    right: 34,
-    backgroundColor: '#ffffff',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    minWidth: 220,
-    overflow: 'hidden',
-    shadowColor: '#0f172a',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.16,
-    shadowRadius: 10,
-    elevation: 12,
-  },
-  menuItem: {
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
-  },
-  menuItemLast: {
-    borderBottomWidth: 0,
-  },
-  menuItemText: {
-    color: '#0f172a',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  menuItemDanger: {
-    color: '#b91c1c',
   },
   profileHeaderRow: {
     flexDirection: 'row',
@@ -761,7 +752,7 @@ const styles = StyleSheet.create({
     width: 88,
     height: 88,
     borderRadius: 44,
-    backgroundColor: '#0d7377',
+    backgroundColor: '#076F32',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -777,7 +768,7 @@ const styles = StyleSheet.create({
     width: 26,
     height: 26,
     borderRadius: 13,
-    backgroundColor: '#0d7377',
+    backgroundColor: '#076F32',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
@@ -815,7 +806,7 @@ const styles = StyleSheet.create({
   shopUsername: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#0d7377',
+    color: '#076F32',
     marginBottom: 4,
   },
   businessCategoryLabel: {
@@ -847,6 +838,73 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
     marginTop: 12,
+  },
+  walletCard: {
+    marginTop: 16,
+    backgroundColor: t.primaryDark,
+    borderRadius: 16,
+    padding: 16,
+  },
+  walletCardTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  walletCardTitle: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  walletCardBalance: {
+    color: '#ffffff',
+    fontSize: 28,
+    fontWeight: '800',
+    marginTop: 8,
+    marginBottom: 8,
+  },
+  walletCardCta: {
+    color: 'rgba(255,255,255,0.92)',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  buyerMenuList: {
+    marginTop: 16,
+    gap: 10,
+  },
+  buyerMenuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: '#ffffff',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+  },
+  buyerMenuIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#dbeafe',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  buyerMenuText: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  buyerMenuLogout: {
+    backgroundColor: '#fee2e2',
+    borderColor: '#fecaca',
+  },
+  buyerMenuLogoutIcon: {
+    backgroundColor: '#fecaca',
+  },
+  buyerMenuLogoutText: {
+    color: '#dc2626',
   },
   shopStatsRow: {
     flexDirection: 'row',
@@ -881,14 +939,14 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 22,
     borderRadius: 12,
-    backgroundColor: '#e8f3f1',
+    backgroundColor: '#E6F4EC',
     borderWidth: 1,
     borderColor: '#c5e3df',
   },
   ordersEntryText: {
     fontSize: 15,
     fontWeight: '800',
-    color: '#0d7377',
+    color: '#076F32',
   },
   followText: {
     color: '#6b7280',
@@ -896,7 +954,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   followValue: {
-    color: '#0d7377',
+    color: '#076F32',
     fontWeight: '900',
   },
   followDivider: {
@@ -945,19 +1003,78 @@ const styles = StyleSheet.create({
     gap: 8,
     marginTop: 12,
   },
-  sellerToolButton: {
-    flex: 1,
+  sellerShortcutBlock: {
+    marginTop: 14,
+    marginHorizontal: 16,
+    padding: 14,
+    borderRadius: 16,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  sellerShortcutTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#0f172a',
+    marginBottom: 10,
+  },
+  sellerHubCard: {
+    marginTop: 12,
+    marginBottom: 4,
+    backgroundColor: '#E6F4EC',
+    borderRadius: 16,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#bbf7d0',
+  },
+  sellerHubTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#14532d',
+  },
+  sellerHubSub: {
+    marginTop: 4,
+    marginBottom: 10,
+    fontSize: 12,
+    color: '#055528',
+    lineHeight: 17,
+  },
+  sellerHubGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  sellerHubItem: {
+    width: '47%',
+    flexGrow: 1,
     minHeight: 42,
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#e8f3f1',
+    backgroundColor: '#ffffff',
     borderWidth: 1,
-    borderColor: '#a7f3d0',
+    borderColor: '#86efac',
+    paddingHorizontal: 8,
+  },
+  sellerHubItemText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#055528',
+  },
+  sellerToolButton: {
+    minWidth: '30%',
+    flexGrow: 1,
+    minHeight: 42,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#E6F4EC',
+    borderWidth: 1,
+    borderColor: '#A7D9B8',
     paddingHorizontal: 10,
   },
   sellerToolText: {
-    color: '#0d7377',
+    color: '#076F32',
     fontSize: 12,
     fontWeight: '800',
     textAlign: 'center',
@@ -971,7 +1088,7 @@ const styles = StyleSheet.create({
     width: '100%',
     minHeight: 44,
     borderRadius: 12,
-    backgroundColor: '#0d7377',
+    backgroundColor: '#076F32',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -984,12 +1101,12 @@ const styles = StyleSheet.create({
     width: '100%',
     minHeight: 44,
     borderRadius: 12,
-    backgroundColor: '#e8f3f1',
+    backgroundColor: '#E6F4EC',
     alignItems: 'center',
     justifyContent: 'center',
   },
   secondaryActionText: {
-    color: '#0d7377',
+    color: '#076F32',
     fontSize: 14,
     fontWeight: '800',
   },
@@ -1006,7 +1123,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   statValue: {
-    color: '#0d7377',
+    color: '#076F32',
     fontSize: 18,
     fontWeight: '900',
     marginBottom: 4,
@@ -1033,7 +1150,7 @@ const styles = StyleSheet.create({
   successText: {
     marginHorizontal: 16,
     marginTop: 12,
-    color: '#047857',
+    color: '#076F32',
     fontSize: 13,
     fontWeight: '700',
   },
@@ -1060,7 +1177,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   tabTextActive: {
-    color: '#0d7377',
+    color: '#076F32',
     fontWeight: '900',
   },
   tabIndicator: {
@@ -1068,7 +1185,7 @@ const styles = StyleSheet.create({
     height: 3,
     width: '100%',
     borderRadius: 2,
-    backgroundColor: '#0d7377',
+    backgroundColor: '#076F32',
   },
   productGrid: {
     flexDirection: 'row',
@@ -1163,7 +1280,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   productPrice: {
-    color: '#0d7377',
+    color: '#076F32',
     fontSize: 12,
     fontWeight: '800',
     marginTop: 2,
@@ -1244,7 +1361,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#ecfdf5',
+    backgroundColor: '#E6F4EC',
     borderWidth: 1,
     borderColor: '#6ee7b7',
   },
@@ -1259,7 +1376,7 @@ const styles = StyleSheet.create({
     borderColor: '#93c5fd',
   },
   modeSwitchButtonText: {
-    color: '#047857',
+    color: '#076F32',
     fontSize: 14,
     fontWeight: '800',
   },
@@ -1272,7 +1389,7 @@ const styles = StyleSheet.create({
     minHeight: 48,
     paddingHorizontal: 20,
     borderRadius: 12,
-    backgroundColor: '#0d7377',
+    backgroundColor: '#076F32',
     alignItems: 'center',
     justifyContent: 'center',
   },

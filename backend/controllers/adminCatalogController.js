@@ -1,6 +1,6 @@
 const adminCatalogService = require("../services/adminCatalogService");
-const { SHOP_STATUS } = require("../constants/shopStatus");
-const { PRODUCT_STATUS } = require("../constants/productStatus");
+const { SHOP_STATUS } = require("../constants");
+const { PRODUCT_STATUS } = require("../constants");
 const { success } = require("../utils/apiResponse");
 
 function pickQueryValue(query, keys) {
@@ -106,25 +106,4 @@ exports.cancelReservation = async (req, res) => {
   const reason = pickBodyValue(req.body, ["reason", "cancelReason"]);
   const reservation = await adminCatalogService.cancelReservation(req.params.id, reason);
   return success(res, { message: "Đã hủy đơn giữ hàng.", data: { reservation } });
-};
-
-exports.listDeals = async (req, res) => {
-  const data = await adminCatalogService.listDeals({
-    search: pickQueryValue(req.query, ["search", "q"]),
-    status: pickQueryValue(req.query, ["status"]),
-    page: req.query.page,
-    limit: req.query.limit,
-  });
-  return success(res, { data });
-};
-
-exports.getDealDetail = async (req, res) => {
-  const deal = await adminCatalogService.getDealDetail(req.params.id);
-  return success(res, { data: { deal } });
-};
-
-exports.lockDeal = async (req, res) => {
-  const reason = pickBodyValue(req.body, ["reason", "note"]);
-  const deal = await adminCatalogService.lockDeal(req.params.id, reason);
-  return success(res, { message: "Đã khóa deal bất thường.", data: { deal } });
 };

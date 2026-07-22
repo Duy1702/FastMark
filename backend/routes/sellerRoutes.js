@@ -57,12 +57,6 @@ router.post(
   requireSeller,
   asyncHandler(sellerOpsController.checkShopUsernameAvailability)
 );
-router.post(
-  "/shop/avatar",
-  verifyFirebaseToken,
-  requireSeller,
-  asyncHandler(sellerOpsController.uploadShopAvatar)
-);
 
 router.get("/orders", verifyFirebaseToken, requireSeller, asyncHandler(sellerOpsController.listOrders));
 router.get(
@@ -89,31 +83,17 @@ router.post(
   requireSeller,
   asyncHandler(sellerOpsController.cancelReservation)
 );
-router.post(
-  "/reservations/:id/complete",
-  verifyFirebaseToken,
-  requireSeller,
-  asyncHandler(sellerOpsController.completeReservation)
-);
 
-router.get("/deals", verifyFirebaseToken, requireSeller, asyncHandler(sellerOpsController.listDeals));
+/** Alias: seller báo buyer no-show (cùng API /api/reports/seller-report-buyer). */
 router.post(
-  "/deals/:id/accept",
+  "/reservations/:id/report-buyer",
   verifyFirebaseToken,
   requireSeller,
-  asyncHandler(sellerOpsController.acceptDeal)
-);
-router.post(
-  "/deals/:id/reject",
-  verifyFirebaseToken,
-  requireSeller,
-  asyncHandler(sellerOpsController.rejectDeal)
-);
-router.post(
-  "/deals/:id/counter",
-  verifyFirebaseToken,
-  requireSeller,
-  asyncHandler(sellerOpsController.counterDeal)
+  asyncHandler(async (req, res) => {
+    const reservationReportController = require("../controllers/reservationReportController");
+    req.body = { ...req.body, reservationId: req.params.id };
+    return reservationReportController.sellerReportBuyer(req, res);
+  })
 );
 
 router.get(
@@ -148,5 +128,39 @@ router.get(
 );
 
 router.get("/stats", verifyFirebaseToken, requireSeller, asyncHandler(sellerOpsController.getStats));
+
+const sellerSubscriptionController = require("../controllers/sellerSubscriptionController");
+router.get(
+  "/subscription",
+  verifyFirebaseToken,
+  requireSeller,
+  asyncHandler(sellerSubscriptionController.getSubscription)
+);
+router.post(
+  "/subscription/purchase",
+  verifyFirebaseToken,
+  requireSeller,
+  asyncHandler(sellerSubscriptionController.purchaseSubscription)
+);
+
+const sellerBannerController = require("../controllers/sellerBannerController");
+router.get(
+  "/banner",
+  verifyFirebaseToken,
+  requireSeller,
+  asyncHandler(sellerBannerController.getMyBanner)
+);
+router.post(
+  "/banner/purchase",
+  verifyFirebaseToken,
+  requireSeller,
+  asyncHandler(sellerBannerController.purchaseBanner)
+);
+router.put(
+  "/banner/creative",
+  verifyFirebaseToken,
+  requireSeller,
+  asyncHandler(sellerBannerController.updateCreative)
+);
 
 module.exports = router;

@@ -1,6 +1,7 @@
 import { createAsyncThunk, createSlice } from '@reduxjs/toolkit';
 
 import {
+  cacheIdToken,
   changeCurrentUserPassword,
   getCurrentFirebaseUser,
   getCurrentUserIdToken,
@@ -149,13 +150,15 @@ function normalizeEmailVerification(payload, fallbackEmail = '', { isResend = fa
   }
 
   let resendAvailableAt = null;
-  if (isResend) {
-    const resendMs = payload.resendAvailableAt
-      ? new Date(payload.resendAvailableAt).getTime()
-      : now + EMAIL_RESEND_COOLDOWN_SECONDS * 1000;
+  if (payload.resendAvailableAt) {
+    const resendMs = new Date(payload.resendAvailableAt).getTime();
     if (Number.isFinite(resendMs) && resendMs > now) {
       resendAvailableAt = new Date(resendMs).toISOString();
     }
+  } else if (isResend || Number(payload.resendCooldownSeconds) > 0) {
+    const cooldownSec =
+      Number(payload.resendCooldownSeconds) || EMAIL_RESEND_COOLDOWN_SECONDS;
+    resendAvailableAt = new Date(now + cooldownSec * 1000).toISOString();
   }
 
   return {
@@ -185,21 +188,26 @@ export const loadUserProfile = createAsyncThunk(
 
     log.info('loadUserProfile:start', { uid: user.uid });
 
+    // Ưu tiên cache để vào app nhanh; rồi mới gọi backend.
+    const cached = await readCachedProfile(user.uid);
+    if (cached && !hasApiBaseUrl()) {
+      log.ok('loadUserProfile:cache-hit', { uid: user.uid });
+      return { profile: makeProfileFromAuthUser(user, cached) };
+    }
+
     if (hasApiBaseUrl()) {
       try {
-        const idToken = await getCurrentUserIdToken();
+        const idToken = await getCurrentUserIdToken(false);
         if (idToken) {
           const backendData = await fetchBackendUser(idToken);
           const profile = mapBackendUserToProfile(backendData.user, user);
           await writeCachedProfile(profile);
 
-          // Đồng bộ Firebase photo với avatar backend (bỏ ảnh Google còn sót).
+          // Không await — tránh chậm login/startup vì update Firebase photo.
           if (profile?.photoUrl && profile.photoUrl !== user.photoURL) {
-            try {
-              await syncAuthPhotoWithBackendAvatar(user, profile.photoUrl);
-            } catch (error) {
+            syncAuthPhotoWithBackendAvatar(user, profile.photoUrl).catch((error) => {
               log.fail('loadUserProfile:sync-photo', error);
-            }
+            });
           }
 
           log.ok('loadUserProfile:backend', { uid: user.uid });
@@ -210,9 +218,8 @@ export const loadUserProfile = createAsyncThunk(
       }
     }
 
-    const cached = await readCachedProfile(user.uid);
     if (cached) {
-      log.ok('loadUserProfile:cache-hit', { uid: user.uid });
+      log.ok('loadUserProfile:cache-fallback', { uid: user.uid });
       return { profile: makeProfileFromAuthUser(user, cached) };
     }
 
@@ -232,7 +239,7 @@ export const syncSellerAccess = createAsyncThunk(
   'auth/syncSellerAccess',
   async (_, { getState, rejectWithValue }) => {
     try {
-      const { user } = getState().auth;
+      const { user, profile: currentProfile } = getState().auth;
       if (!user) {
         return {
           profile: null,
@@ -245,22 +252,20 @@ export const syncSellerAccess = createAsyncThunk(
         return rejectWithValue('Chưa cấu hình backend API.');
       }
 
-      const idToken = await getCurrentUserIdToken();
+      const idToken = await getCurrentUserIdToken(false);
       if (!idToken) {
-        return rejectWithValue('Phiên đăng nhập đã hết hạn.');
+        return rejectWithValue('Không lấy được token đăng nhập (Firebase chậm/mạng). Thử lại sau.');
       }
 
-      const [verificationData, backendData] = await Promise.all([
-        getMySellerVerificationOnBackend(idToken),
-        fetchBackendUser(idToken),
-      ]);
-
+      // Chỉ lấy verification — không gọi /me lần nữa (đã có từ login/loadUserProfile).
+      const verificationData = await getMySellerVerificationOnBackend(idToken);
       const freshRole = normalizeRole(
-        verificationData?.role ?? backendData?.user?.role ?? backendData?.role ?? 1
+        verificationData?.role ?? currentProfile?.role ?? 1
       );
       const verification = verificationData?.verification || null;
-      let profile = mapBackendUserToProfile(backendData.user || backendData, user);
-      profile.role = freshRole;
+      let profile = currentProfile
+        ? { ...currentProfile, role: freshRole }
+        : makeProfileFromAuthUser(user, { role: freshRole });
 
       if (verification) {
         profile = mergeProfile(user, profile, mapSellerVerificationToProfilePatch(verification));
@@ -303,6 +308,9 @@ export const registerUser = createAsyncThunk(
       });
 
       const user = await signInWithCustomTokenFromBackend(loginData.tokens.customToken);
+      if (loginData.tokens?.idToken) {
+        cacheIdToken(user.uid, loginData.tokens.idToken);
+      }
       const profile = mapBackendUserToProfile(loginData.user, user);
       await writeCachedProfile(profile);
 
@@ -340,6 +348,10 @@ export const loginUser = createAsyncThunk(
       });
 
       const user = await signInWithCustomTokenFromBackend(loginData.tokens.customToken);
+      // Dùng idToken backend ngay — khỏi chờ Firebase refresh thêm vòng.
+      if (loginData.tokens?.idToken) {
+        cacheIdToken(user.uid, loginData.tokens.idToken);
+      }
       const profile = mapBackendUserToProfile(loginData.user, user);
       await writeCachedProfile(profile);
 
@@ -528,7 +540,13 @@ export const socialLogin = createAsyncThunk(
 
       const user = await signInWithCustomTokenFromBackend(data.customToken);
       const profile = mapBackendUserToProfile(data.user, user);
-      const syncedUser = await syncAuthPhotoWithBackendAvatar(user, profile.photoUrl);
+      const syncedUser = {
+        ...user,
+        photoURL: String(profile.photoUrl || '').trim() || user.photoURL || '',
+      };
+      syncAuthPhotoWithBackendAvatar(user, profile.photoUrl).catch((error) => {
+        log.fail('socialLogin:sync-photo', error);
+      });
       await writeCachedProfile(profile);
 
       log.ok('socialLogin:success', { uid: syncedUser.uid });
@@ -570,7 +588,13 @@ export const completeGoogleProfile = createAsyncThunk(
 
       const user = await signInWithCustomTokenFromBackend(data.customToken);
       const profile = mapBackendUserToProfile(data.user, user);
-      const syncedUser = await syncAuthPhotoWithBackendAvatar(user, profile.photoUrl);
+      const syncedUser = {
+        ...user,
+        photoURL: String(profile.photoUrl || '').trim() || user.photoURL || '',
+      };
+      syncAuthPhotoWithBackendAvatar(user, profile.photoUrl).catch((error) => {
+        log.fail('completeGoogleProfile:sync-photo', error);
+      });
       await writeCachedProfile(profile);
 
       return {
@@ -808,6 +832,23 @@ const authSlice = createSlice({
         // Không giữ success message để tránh hiện trên tab Tài khoản.
         state.successMessage = null;
       })
+      .addCase(confirmEmailVerificationCode.rejected, (state, action) => {
+        const data = action.payload?.data;
+        if (!data?.mustUseNewCode) {
+          return;
+        }
+        state.emailVerification = normalizeEmailVerification(
+          {
+            email: data.email || state.emailVerification?.email,
+            expiresAt: data.expiresAt,
+            expiresInSeconds: data.expiresInSeconds,
+            resendAvailableAt: data.resendAvailableAt,
+            resendCooldownSeconds: data.resendCooldownSeconds,
+          },
+          state.emailVerification?.email || state.profile?.email || state.user?.email || '',
+          { isResend: true }
+        );
+      })
       .addCase(requestEmailVerificationCode.fulfilled, (state, action) => {
         state.actionStatus = 'idle';
         state.emailVerification = action.payload;
@@ -819,6 +860,8 @@ const authSlice = createSlice({
         state.actionStatus = 'idle';
         state.user = action.payload.user;
         state.profile = action.payload.profile;
+        state.profileStatus = 'succeeded';
+        state.sellerAccessSyncedAt = Date.now();
         state.pendingGoogle = null;
         state.error = null;
         state.successMessage = action.payload.message;
@@ -869,6 +912,8 @@ const authSlice = createSlice({
         state.actionStatus = 'idle';
         state.user = action.payload.user;
         state.profile = action.payload.profile;
+        state.profileStatus = 'succeeded';
+        state.sellerAccessSyncedAt = Date.now();
         state.emailVerification = action.payload.emailVerification || null;
         state.error = null;
         state.successMessage = action.payload.message;
@@ -878,6 +923,8 @@ const authSlice = createSlice({
         state.actionStatus = 'idle';
         state.user = action.payload.user;
         state.profile = action.payload.profile;
+        state.profileStatus = 'succeeded';
+        state.sellerAccessSyncedAt = Date.now();
         state.error = null;
         // Không hiện "Đăng nhập thành công" trên tab Tài khoản.
         state.successMessage = null;
@@ -915,6 +962,8 @@ const authSlice = createSlice({
           state.status = 'authenticated';
           state.user = action.payload.user;
           state.profile = action.payload.profile;
+          state.profileStatus = 'succeeded';
+          state.sellerAccessSyncedAt = Date.now();
           state.pendingGoogle = null;
           state.error = null;
           state.successMessage = null;

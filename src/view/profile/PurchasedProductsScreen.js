@@ -152,7 +152,10 @@ export default function PurchasedProductsScreen({
       const rows = (data?.reservations || []).map((reservation) => ({
         id: String(reservation.id),
         orderCode: String(reservation.id),
+        reservationId: String(reservation.id),
+        shopId: reservation.shopId || reservation.storeId || '',
         storeId: reservation.shopId || reservation.storeId || '',
+        productId: reservation.product?.id ? String(reservation.product.id) : '',
         productName:
           reservation.product?.productName ||
           reservation.variant?.variantName ||
@@ -177,18 +180,18 @@ export default function PurchasedProductsScreen({
     loadPurchases();
   }, [loadPurchases, localRefreshKey]);
 
-  async function handleSubmitReview({ rating, comment, imageUrl }) {
+  async function handleSubmitReview({ rating, comment, images, imageUrl }) {
     if (!reviewTarget) {
       return;
     }
     try {
       await submitShopReview({
-        storeId: reviewTarget.storeId,
-        storeName: reviewTarget.storeName,
-        productName: reviewTarget.productName,
-        orderCode: reviewTarget.orderCode,
+        shopId: reviewTarget.shopId || reviewTarget.storeId,
+        productId: reviewTarget.productId,
+        reservationId: reviewTarget.reservationId || reviewTarget.orderCode || reviewTarget.id,
         rating,
         comment,
+        images,
         imageUrl,
       });
       markReviewed(reviewTarget);
@@ -211,7 +214,7 @@ export default function PurchasedProductsScreen({
   const content = (
     <>
       {isLoading ? (
-        <ActivityIndicator size="large" color="#0f766e" style={styles.loader} />
+        <ActivityIndicator size="large" color="#076F32" style={styles.loader} />
       ) : (
         <PurchaseList
           items={purchases}
@@ -299,7 +302,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#ccfbf1',
+    borderColor: '#E6F4EC',
   },
   emoji: {
     fontSize: 30,
@@ -334,7 +337,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   totalValue: {
-    color: '#0f766e',
+    color: '#076F32',
     fontSize: 14,
     fontWeight: '900',
   },

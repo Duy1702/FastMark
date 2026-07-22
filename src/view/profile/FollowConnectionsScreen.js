@@ -17,12 +17,13 @@ import {
   unfollowShopOnBackend,
 } from '../../api/followApi';
 import { getCurrentUserIdToken } from '../../repository/authRepository';
-import CircularBackButton from '../shared/components/CircularBackButton';
+import SubScreenHeader from '../shared/components/SubScreenHeader';
 import ClearableSearchField from '../shared/components/ClearableSearchField';
+import { useScreenInsets } from '../../hooks/useScreenInsets';
 
 function ConnectionRow({ item, showUnfollow, onUnfollow, onOpenShop }) {
   const isShop = Boolean(item.shopId || item.shopName);
-  const avatar = item.shopAvatar || item.avatar;
+  const avatar = item.avatar || item.shopAvatar;
   const title = item.shopName || item.fullName || item.userName || (isShop ? 'Gian hàng' : 'Người dùng');
   const subtitle = item.shopUsername
     ? `@${item.shopUsername}`
@@ -80,6 +81,7 @@ export default function FollowConnectionsScreen({
   mode,
   shopId = '',
 }) {
+  const insets = useScreenInsets();
   const resolvedMode = mode || (initialTab === 'followers' ? 'followers' : 'following');
   const [activeTab, setActiveTab] = useState(resolvedMode);
   const [items, setItems] = useState([]);
@@ -94,7 +96,7 @@ export default function FollowConnectionsScreen({
 
   const tabs = useMemo(() => {
     if (shopId || resolvedMode === 'followers') {
-      return [{ key: 'followers', label: 'Người theo dõi shop' }];
+      return [{ key: 'followers', label: 'Người theo dõi' }];
     }
     return [{ key: 'following', label: 'Đang theo dõi' }];
   }, [shopId, resolvedMode]);
@@ -176,20 +178,11 @@ export default function FollowConnectionsScreen({
     }
   }
 
-  const title =
-    activeTab === 'followers'
-      ? shopId
-        ? 'Người theo dõi gian hàng'
-        : 'Người theo dõi shop'
-      : 'Gian hàng đang theo dõi';
+  const title = activeTab === 'followers' ? 'Người theo dõi' : 'Đang theo dõi';
 
   return (
     <View style={styles.screen}>
-      <View style={styles.header}>
-        <CircularBackButton onPress={onBack} variant="surface" />
-        <Text style={styles.title}>{title}</Text>
-        <View style={styles.headerSpacer} />
-      </View>
+      <SubScreenHeader title={title} onBack={onBack} />
 
       {tabs.length > 1 ? (
         <View style={styles.tabRow}>
@@ -229,7 +222,7 @@ export default function FollowConnectionsScreen({
 
       {isLoading ? (
         <View style={styles.centerState}>
-          <ActivityIndicator size="large" color="#0f766e" />
+          <ActivityIndicator size="large" color="#076F32" />
           <View style={styles.skeletonList}>
             {[0, 1, 2].map((index) => (
               <View key={index} style={styles.skeletonRow} />
@@ -247,7 +240,11 @@ export default function FollowConnectionsScreen({
         <FlatList
           data={items}
           keyExtractor={(item) => String(item.shopId || item.id)}
-          contentContainerStyle={items.length === 0 ? styles.emptyList : styles.listContent}
+          contentContainerStyle={
+            items.length === 0
+              ? styles.emptyList
+              : [styles.listContent, { paddingBottom: insets.nestedScrollPaddingBottom }]
+          }
           refreshControl={
             <RefreshControl refreshing={isRefreshing} onRefresh={() => loadData({ refresh: true })} />
           }
@@ -271,7 +268,7 @@ export default function FollowConnectionsScreen({
           }
           ListFooterComponent={
             isLoadingMore ? (
-              <ActivityIndicator style={{ marginVertical: 16 }} color="#0f766e" />
+              <ActivityIndicator style={{ marginVertical: 16 }} color="#076F32" />
             ) : null
           }
           renderItem={({ item }) => (
@@ -336,7 +333,7 @@ const styles = StyleSheet.create({
     color: '#64748b',
   },
   tabTextActive: {
-    color: '#0f766e',
+    color: '#076F32',
     fontWeight: '800',
   },
   searchRow: {
@@ -356,7 +353,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#0f766e',
+    backgroundColor: '#076F32',
   },
   searchBtnText: {
     color: '#ffffff',
@@ -399,7 +396,7 @@ const styles = StyleSheet.create({
   avatarText: {
     fontSize: 18,
     fontWeight: '800',
-    color: '#0f766e',
+    color: '#076F32',
   },
   rowBody: {
     flex: 1,
@@ -469,7 +466,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 12,
-    backgroundColor: '#0f766e',
+    backgroundColor: '#076F32',
   },
   retryText: {
     color: '#ffffff',

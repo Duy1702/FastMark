@@ -22,7 +22,22 @@
         }
       ],
       "expo-web-browser",
-      "@react-native-google-signin/google-signin"
+      "@react-native-google-signin/google-signin",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "FastMark cần camera để quét mã nhận hàng của khách.",
+          "barcodeScannerEnabled": true
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#076F32",
+          "defaultChannel": "default"
+        }
+      ]
     ],
     "ios": {
       "supportsTablet": true,
@@ -32,6 +47,9 @@
       "package": "com.nduy17.fastmark",
       "googleServicesFile": "./google-services.json",
       "softwareKeyboardLayoutMode": "resize",
+      "permissions": [
+        "POST_NOTIFICATIONS"
+      ],
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",

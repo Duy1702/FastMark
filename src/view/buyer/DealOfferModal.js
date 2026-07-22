@@ -17,7 +17,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { getCurrentUserIdToken } from '../../repository/authRepository';
 import { createBuyerDealOnBackend } from '../../api/buyerOpsApi';
-import { formatPrice } from '../../core/utils/productFormat';
+import { formatPrice, getPromotionalUnitPrice } from '../../core/utils/productFormat';
 import SelectedVariantCard from './SelectedVariantCard';
 import QuantityStepper from './QuantityStepper';
 
@@ -90,7 +90,7 @@ export default function DealOfferModal({
     });
   }, [selectedVariantId, selectedVariant?.quantity]);
 
-  const unitPrice = Number(selectedVariant?.price) || 0;
+  const unitPrice = getPromotionalUnitPrice(product, selectedVariant?.price);
   const qtyNum = Number(quantity) || 0;
   const originalTotal = unitPrice * (qtyNum > 0 ? qtyNum : 0);
   const offeredTotal = parsePriceInput(priceInput);
@@ -380,8 +380,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#f8fafc',
   },
   variantChipActive: {
-    borderColor: '#0f766e',
-    backgroundColor: '#ecfdf5',
+    borderColor: '#076F32',
+    backgroundColor: '#E6F4EC',
   },
   variantText: {
     fontSize: 13,
@@ -389,19 +389,19 @@ const styles = StyleSheet.create({
     color: '#334155',
   },
   variantTextActive: {
-    color: '#0f766e',
+    color: '#076F32',
   },
   originalPrice: {
     fontSize: 16,
     fontWeight: '800',
-    color: '#0f766e',
+    color: '#076F32',
   },
   totalUnderVariant: {
     marginTop: 8,
     marginBottom: 4,
     fontSize: 16,
     fontWeight: '900',
-    color: '#0f766e',
+    color: '#076F32',
   },
   input: {
     borderWidth: 1,
@@ -465,7 +465,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#0f766e',
+    backgroundColor: '#076F32',
     paddingVertical: 12,
     paddingHorizontal: 8,
   },

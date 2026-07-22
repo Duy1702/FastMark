@@ -65,17 +65,22 @@ router.delete(
 router.delete("/follows", verifyFirebaseToken, asyncHandler(buyerController.unfollowShop));
 
 router.get("/orders", verifyFirebaseToken, asyncHandler(buyerOpsController.listOrders));
-router.post("/deals", verifyFirebaseToken, asyncHandler(buyerOpsController.createDeal));
-router.get("/deals", verifyFirebaseToken, asyncHandler(buyerOpsController.listDeals));
-router.get("/deals/:id", verifyFirebaseToken, asyncHandler(buyerOpsController.getDeal));
-router.post("/deals/:id/resubmit", verifyFirebaseToken, asyncHandler(buyerOpsController.resubmitDeal));
-router.post("/deals/:id/counter", verifyFirebaseToken, asyncHandler(buyerOpsController.counterDeal));
-router.post(
-  "/deals/:id/accept-counter",
-  verifyFirebaseToken,
-  asyncHandler(buyerOpsController.acceptCounter)
-);
 router.post("/reservations", verifyFirebaseToken, asyncHandler(buyerOpsController.createReservation));
+router.post(
+  "/reservations/confirm-received",
+  verifyFirebaseToken,
+  asyncHandler(buyerOpsController.confirmReceived)
+);
+router.post(
+  "/reservations/validate-shop-qr",
+  verifyFirebaseToken,
+  asyncHandler(buyerOpsController.validateShopQrScan)
+);
+router.post(
+  "/reservations/report",
+  verifyFirebaseToken,
+  asyncHandler(buyerOpsController.reportReservation)
+);
 router.get(
   "/reservations/:id",
   verifyFirebaseToken,
@@ -87,9 +92,24 @@ router.post(
   asyncHandler(buyerOpsController.cancelReservation)
 );
 router.post(
-  "/reservations/:id/complete",
+  "/reservations/:id/confirm-received",
   verifyFirebaseToken,
-  asyncHandler(buyerOpsController.completeReservation)
+  asyncHandler(buyerOpsController.confirmReceived)
+);
+router.post(
+  "/reservations/:id/report",
+  verifyFirebaseToken,
+  asyncHandler(buyerOpsController.reportReservation)
+);
+router.post(
+  "/reservations/:id/forfeit-deposit",
+  verifyFirebaseToken,
+  asyncHandler(buyerOpsController.forfeitDeposit)
+);
+router.post(
+  "/reservations/forfeit-deposit",
+  verifyFirebaseToken,
+  asyncHandler(buyerOpsController.forfeitDeposit)
 );
 
 module.exports = router;

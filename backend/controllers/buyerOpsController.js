@@ -17,67 +17,6 @@ exports.listOrders = async (req, res) => {
   return success(res, { data });
 };
 
-exports.createDeal = async (req, res) => {
-  const productId = pickBodyValue(req.body, ["productId", "product_id"]);
-  const variantId = pickBodyValue(req.body, ["variantId", "variant_id"]);
-  const offeredPrice = req.body.offeredPrice ?? req.body.offered_price;
-
-  if (!productId || !variantId || offeredPrice === undefined || offeredPrice === null) {
-    return fail(res, { status: 400, message: "Thiếu sản phẩm, biến thể hoặc giá đề nghị." });
-  }
-
-  const deal = await buyerOpsService.createDealOffer(req.currentUser, req.body);
-  return success(res, {
-    message: "Đã gửi đề nghị deal giá.",
-    data: { deal },
-  });
-};
-
-exports.listDeals = async (req, res) => {
-  const status = req.query.status;
-  const search = pickBodyValue(req.query, ["search", "q"]);
-  const deals = await buyerOpsService.listBuyerDeals(req.currentUser, { status, search });
-  return success(res, { data: { deals } });
-};
-
-exports.getDeal = async (req, res) => {
-  const deal = await buyerOpsService.getBuyerDeal(req.currentUser, req.params.id);
-  return success(res, { data: { deal } });
-};
-
-exports.resubmitDeal = async (req, res) => {
-  const deal = await buyerOpsService.resubmitDealOffer(req.currentUser, req.params.id, req.body);
-  return success(res, {
-    message: "Đã gửi lại đề nghị deal giá.",
-    data: { deal },
-  });
-};
-
-exports.counterDeal = async (req, res) => {
-  const offeredPrice = req.body.offeredPrice ?? req.body.offered_price;
-  if (offeredPrice === undefined || offeredPrice === null) {
-    return fail(res, { status: 400, message: "Thiếu giá đề nghị." });
-  }
-
-  const deal = await buyerOpsService.counterDealOfferByBuyer(
-    req.currentUser,
-    req.params.id,
-    req.body
-  );
-  return success(res, {
-    message: "Đã gửi đề nghị giá mới.",
-    data: { deal },
-  });
-};
-
-exports.acceptCounter = async (req, res) => {
-  const deal = await buyerOpsService.acceptCounterOffer(req.currentUser, req.params.id);
-  return success(res, {
-    message: "Đã chấp nhận mức giá của shop.",
-    data: { deal },
-  });
-};
-
 exports.createReservation = async (req, res) => {
   const productId = pickBodyValue(req.body, ["productId", "product_id"]);
   const variantId = pickBodyValue(req.body, ["variantId", "variant_id"]);
@@ -113,13 +52,112 @@ exports.cancelReservation = async (req, res) => {
   });
 };
 
-exports.completeReservation = async (req, res) => {
-  const reservation = await buyerOpsService.completeReservationByBuyer(
+exports.confirmReceived = async (req, res) => {
+  const reservationId =
+    pickBodyValue(req.body, ["reservationId", "reservation_id", "id"]) || req.params.id;
+  const scannedShopId = pickBodyValue(req.body, [
+    "scannedShopId",
+    "scanned_shop_id",
+    "shopId",
+    "shop_id",
+  ]);
+
+  if (!reservationId) {
+    return fail(res, { status: 400, message: "Thiếu reservationId." });
+  }
+
+  const reservation = await buyerOpsService.confirmReceivedByBuyer(
     req.currentUser,
-    req.params.id
+    reservationId,
+    { scannedShopId }
   );
   return success(res, {
-    message: "Đã xác nhận lấy hàng thành công.",
+    message: "Đã xác nhận nhận hàng. Cọc đã chuyển cho người bán.",
+    data: { reservation },
+  });
+};
+
+exports.validateShopQrScan = async (req, res) => {
+  const reservationId =
+    pickBodyValue(req.body, ["reservationId", "reservation_id", "id"]) || req.params.id;
+  const scannedShopId = pickBodyValue(req.body, [
+    "scannedShopId",
+    "scanned_shop_id",
+    "shopId",
+    "shop_id",
+  ]);
+
+  if (!reservationId) {
+    return fail(res, { status: 400, message: "Thiếu reservationId." });
+  }
+
+  const data = await buyerOpsService.validateShopQrScan(
+    req.currentUser,
+    reservationId,
+    scannedShopId
+  );
+  return success(res, {
+    message: data.message,
+    data,
+  });
+};
+
+exports.reportReservation = async (req, res) => {
+  const reservationId =
+    pickBodyValue(req.body, ["reservationId", "reservation_id", "id"]) || req.params.id;
+  const reason = pickBodyValue(req.body, ["reason"]);
+  const description = pickBodyValue(req.body, ["description", "note"]);
+  const latitude = req.body.latitude ?? req.body.lat;
+  const longitude = req.body.longitude ?? req.body.lng ?? req.body.lon;
+  const images = req.body.images || req.body.imageUrls || [];
+
+  if (!reservationId) {
+    return fail(res, { status: 400, message: "Thiếu reservationId." });
+  }
+
+  // Luồng mới (GPS) không bắt buộc reason string cũ.
+  const hasGps =
+    latitude !== undefined &&
+    latitude !== null &&
+    String(latitude).trim() !== "" &&
+    longitude !== undefined &&
+    longitude !== null &&
+    String(longitude).trim() !== "";
+
+  if (!hasGps && !reason) {
+    return fail(res, { status: 400, message: "Thiếu lý do báo cáo." });
+  }
+
+  const result = await buyerOpsService.reportReservationByBuyer(
+    req.currentUser,
+    reservationId,
+    { reason, description, latitude, longitude, images }
+  );
+
+  // buyerReportSeller trả { report, reservation }; legacy trả reservation thuần.
+  const reservation = result?.reservation || result;
+  const report = result?.report || null;
+
+  return success(res, {
+    message: "Đã gửi báo cáo. Admin sẽ xử lý tranh chấp.",
+    data: { reservation, report },
+  });
+};
+
+/** Buyer đồng ý mất cọc sau quá giờ nhận → giải ngân seller. */
+exports.forfeitDeposit = async (req, res) => {
+  const reservationId =
+    pickBodyValue(req.body, ["reservationId", "reservation_id", "id"]) || req.params.id;
+  if (!reservationId) {
+    return fail(res, { status: 400, message: "Thiếu reservationId." });
+  }
+
+  const reservation = await buyerOpsService.forfeitDepositByBuyer(
+    req.currentUser,
+    reservationId
+  );
+  return success(res, {
+    message: "Bạn đã đồng ý mất cọc. Tiền cọc đã chuyển cho người bán.",
     data: { reservation },
   });
 };

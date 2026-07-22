@@ -19,6 +19,9 @@ import { createProductOnBackend, getProductCategoriesOnBackend } from '../../api
 import { getCurrentUserIdToken } from '../../repository/authRepository';
 import { syncSellerAccess } from '../../viewmodel/auth/authSlice';
 import { useDispatch } from 'react-redux';
+import ProductPromotionSection, {
+  buildPromotionPayload,
+} from '../seller/ProductPromotionSection';
 
 function createVariant() {
   return {
@@ -26,7 +29,7 @@ function createVariant() {
     variantName: '',
     price: '',
     quantity: '',
-    images: [],
+    image: null,
   };
 }
 
@@ -124,26 +127,20 @@ function CategoryCombobox({ categories, value, onChange, disabled }) {
 }
 
 function VariantBlock({ variant, index, onChange, onRemove, canRemove }) {
-  async function handlePickImages() {
+  async function handlePickImage() {
     try {
-      const picked = await pickImages({ multiple: true });
-      if (!picked.length) {
+      const picked = await pickImages({ multiple: false });
+      if (!picked[0]) {
         return;
       }
       onChange({
         ...variant,
-        images: [...variant.images, ...picked],
+        image: picked[0],
+        error: '',
       });
     } catch (error) {
       onChange({ ...variant, error: error.message });
     }
-  }
-
-  function removeImage(imageIndex) {
-    onChange({
-      ...variant,
-      images: variant.images.filter((_, idx) => idx !== imageIndex),
-    });
   }
 
   return (
@@ -194,26 +191,27 @@ function VariantBlock({ variant, index, onChange, onRemove, canRemove }) {
       </View>
 
       <View style={styles.field}>
-        <Text style={styles.label}>Ảnh biến thể</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.imageRow}>
-          {variant.images.map((image, imageIndex) => (
-            <View key={`${variant.id}-${imageIndex}`} style={styles.imageThumbWrap}>
-              <Image source={{ uri: image.uri }} style={styles.imageThumb} />
+        <Text style={styles.label}>Ảnh biến thể (1 ảnh)</Text>
+        <View style={styles.thumbnailRow}>
+          {variant.image ? (
+            <View style={styles.thumbnailWrap}>
+              <Image source={{ uri: variant.image.uri }} style={styles.thumbnailImage} />
               <Pressable
-                onPress={() => removeImage(imageIndex)}
+                onPress={() => onChange({ ...variant, image: null, error: '' })}
                 style={styles.removeImageButton}
               >
                 <Text style={styles.removeImageText}>×</Text>
               </Pressable>
             </View>
-          ))}
-          <Pressable
-            onPress={handlePickImages}
-            style={({ pressed }) => [styles.addImageButton, pressed && styles.buttonPressed]}
-          >
-            <Text style={styles.addImageText}>+ Ảnh</Text>
-          </Pressable>
-        </ScrollView>
+          ) : (
+            <Pressable
+              onPress={handlePickImage}
+              style={({ pressed }) => [styles.thumbnailPicker, pressed && styles.buttonPressed]}
+            >
+              <Text style={styles.addImageText}>+ Chọn ảnh</Text>
+            </Pressable>
+          )}
+        </View>
       </View>
 
       {variant.error ? <Text style={styles.errorText}>{variant.error}</Text> : null}
@@ -228,11 +226,24 @@ export default function SellerPostForm({ onProductCreated }) {
   const [donVi, setDonVi] = useState('');
   const [categoryId, setCategoryId] = useState('');
   const [categories, setCategories] = useState([]);
-  const [thumbnail, setThumbnail] = useState(null);
+  const [thumbnails, setThumbnails] = useState([]);
   const [variants, setVariants] = useState([createVariant()]);
+  const [promotion, setPromotion] = useState({
+    enabled: false,
+    discountPercent: '',
+    startDate: '',
+    endDate: '',
+  });
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoadingCategories, setIsLoadingCategories] = useState(true);
+
+  const promotionBasePrice = useMemo(() => {
+    const prices = (variants || [])
+      .map((v) => Number(v.price))
+      .filter((p) => Number.isFinite(p) && p > 0);
+    return prices.length ? Math.min(...prices) : 0;
+  }, [variants]);
 
   useEffect(() => {
     let isMounted = true;
@@ -275,17 +286,17 @@ export default function SellerPostForm({ onProductCreated }) {
     setVariants((current) => current.filter((_, itemIndex) => itemIndex !== index));
   }
 
-  async function handlePickThumbnail() {
+  async function handlePickThumbnails() {
     setError('');
 
     try {
-      const picked = await pickImages({ multiple: false });
+      const picked = await pickImages({ multiple: true });
       if (!picked.length) {
         return;
       }
-      setThumbnail(picked[0]);
+      setThumbnails((current) => [...current, ...picked]);
     } catch (pickError) {
-      setError(pickError.message || 'Không chọn được ảnh thumbnail.');
+      setError(pickError.message || 'Không chọn được ảnh sản phẩm.');
     }
   }
 
@@ -302,20 +313,25 @@ export default function SellerPostForm({ onProductCreated }) {
       return;
     }
 
-    if (!thumbnail) {
-      setError('Vui lòng chọn ảnh thumbnail.');
+    if (!thumbnails.length) {
+      setError('Vui lòng chọn ít nhất một ảnh sản phẩm.');
       return;
     }
 
-    const normalizedVariants = variants.map((variant) => ({
-      variantName: variant.variantName.trim(),
-      price: Number(variant.price),
-      quantity: Number(variant.quantity || 0),
-      images: variant.images.map((image) => ({
-        imageBase64: image.base64,
-        mimeType: image.mimeType,
-      })),
-    }));
+    const normalizedVariants = variants.map((variant) => {
+      const image = variant.image
+        ? variant.image.base64
+          ? { imageBase64: variant.image.base64, mimeType: variant.image.mimeType }
+          : { imageUrl: variant.image.imageUrl || variant.image.uri }
+        : null;
+
+      return {
+        variantName: variant.variantName.trim(),
+        price: Number(variant.price),
+        quantity: Number(variant.quantity || 0),
+        image,
+      };
+    });
 
     for (let index = 0; index < normalizedVariants.length; index += 1) {
       const variant = normalizedVariants[index];
@@ -327,8 +343,8 @@ export default function SellerPostForm({ onProductCreated }) {
         setError(`Biến thể ${index + 1}: giá không hợp lệ.`);
         return;
       }
-      if (!variant.images.length) {
-        setError(`Biến thể ${index + 1}: cần ít nhất một ảnh.`);
+      if (!variant.image) {
+        setError(`Biến thể ${index + 1}: cần một ảnh.`);
         return;
       }
     }
@@ -348,9 +364,13 @@ export default function SellerPostForm({ onProductCreated }) {
           description: description.trim(),
           donVi: donVi.trim(),
           categoryId,
-          thumbnailBase64: thumbnail.base64,
-          thumbnailMimeType: thumbnail.mimeType,
+          thumbnails: thumbnails.map((image) =>
+            image.base64
+              ? { imageBase64: image.base64, mimeType: image.mimeType }
+              : { imageUrl: image.imageUrl || image.uri }
+          ),
           variants: normalizedVariants,
+          ...buildPromotionPayload(promotion),
         },
       });
 
@@ -359,16 +379,33 @@ export default function SellerPostForm({ onProductCreated }) {
       setDescription('');
       setDonVi('');
       setCategoryId('');
-      setThumbnail(null);
+      setThumbnails([]);
       setVariants([createVariant()]);
+      setPromotion({
+        enabled: false,
+        discountPercent: '',
+        startDate: '',
+        endDate: '',
+      });
       dispatch(syncSellerAccess());
-      Alert.alert('Thành công', 'Đăng sản phẩm thành công.');
+      Alert.alert(
+        'Thành công',
+        result?.publiclyVisible === false
+          ? result.message ||
+              'Đã lưu bài. Gian hàng chưa có gói active nên bài bị ẩn công khai.'
+          : result?.message || 'Đăng sản phẩm thành công.'
+      );
 
       if (createdProductId) {
         onProductCreated?.(createdProductId);
       }
     } catch (submitError) {
-      Alert.alert('Lỗi', submitError.message || 'Không đăng được sản phẩm.');
+      const message = submitError.message || 'Không đăng được sản phẩm.';
+      if (submitError.statusCode === 403 || /gói bán hàng/i.test(message)) {
+        Alert.alert('Cần mua gói bán hàng', message, [{ text: 'Đóng' }]);
+      } else {
+        Alert.alert('Lỗi', message);
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -406,7 +443,7 @@ export default function SellerPostForm({ onProductCreated }) {
         <View style={styles.field}>
           <Text style={styles.label}>Danh mục</Text>
           {isLoadingCategories ? (
-            <ActivityIndicator color="#0d7377" />
+            <ActivityIndicator color="#076F32" />
           ) : categories.length > 0 ? (
             <CategoryCombobox
               categories={categories}
@@ -419,28 +456,31 @@ export default function SellerPostForm({ onProductCreated }) {
         </View>
 
         <View style={styles.field}>
-          <Text style={styles.label}>Ảnh thumbnail</Text>
-          <View style={styles.thumbnailRow}>
-            {thumbnail ? (
-              <View style={styles.thumbnailWrap}>
-                <Image source={{ uri: thumbnail.uri }} style={styles.thumbnailImage} />
+          <Text style={styles.label}>Ảnh sản phẩm (gallery)</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.imageRow}>
+            {thumbnails.map((image, imageIndex) => (
+              <View key={`thumb-${imageIndex}-${image.uri}`} style={styles.imageThumbWrap}>
+                <Image source={{ uri: image.uri }} style={styles.imageThumb} />
                 <Pressable
-                  onPress={() => setThumbnail(null)}
+                  onPress={() =>
+                    setThumbnails((current) => current.filter((_, idx) => idx !== imageIndex))
+                  }
                   style={styles.removeImageButton}
                 >
                   <Text style={styles.removeImageText}>×</Text>
                 </Pressable>
               </View>
-            ) : (
-              <Pressable
-                onPress={handlePickThumbnail}
-                style={({ pressed }) => [styles.thumbnailPicker, pressed && styles.buttonPressed]}
-              >
-                <Text style={styles.addImageText}>+ Chọn ảnh</Text>
-              </Pressable>
-            )}
-          </View>
-          <Text style={styles.helperText}>Ảnh đại diện hiển thị trên danh sách sản phẩm.</Text>
+            ))}
+            <Pressable
+              onPress={handlePickThumbnails}
+              style={({ pressed }) => [styles.addImageButton, pressed && styles.buttonPressed]}
+            >
+              <Text style={styles.addImageText}>+ Ảnh</Text>
+            </Pressable>
+          </ScrollView>
+          <Text style={styles.helperText}>
+            Ảnh đầu tiên là ảnh đại diện. Cần ít nhất một ảnh.
+          </Text>
         </View>
 
         <View style={styles.field}>
@@ -483,6 +523,16 @@ export default function SellerPostForm({ onProductCreated }) {
         >
           <Text style={styles.addVariantText}>+ Thêm biến thể</Text>
         </Pressable>
+
+        <ProductPromotionSection
+          enabled={promotion.enabled}
+          basePrice={promotionBasePrice}
+          discountPercent={promotion.discountPercent}
+          startDate={promotion.startDate}
+          endDate={promotion.endDate}
+          onChange={setPromotion}
+          disabled={isSubmitting}
+        />
 
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
@@ -636,8 +686,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#ffffff',
   },
   modalOptionActive: {
-    borderColor: '#0d7377',
-    backgroundColor: '#e8f3f1',
+    borderColor: '#076F32',
+    backgroundColor: '#E6F4EC',
   },
   modalOptionText: {
     fontSize: 15,
@@ -645,7 +695,7 @@ const styles = StyleSheet.create({
     color: '#0f172a',
   },
   modalOptionTextActive: {
-    color: '#0d7377',
+    color: '#076F32',
   },
   modalOptionDescription: {
     marginTop: 4,
@@ -756,7 +806,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#ffffff',
   },
   addImageText: {
-    color: '#0d7377',
+    color: '#076F32',
     fontSize: 13,
     fontWeight: '800',
   },
@@ -765,13 +815,13 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#e8f3f1',
+    backgroundColor: '#E6F4EC',
     borderWidth: 1,
     borderColor: '#b7dfd8',
     marginBottom: 16,
   },
   addVariantText: {
-    color: '#0d7377',
+    color: '#076F32',
     fontSize: 14,
     fontWeight: '800',
   },
@@ -786,7 +836,7 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#0d7377',
+    backgroundColor: '#076F32',
   },
   submitButtonDisabled: {
     backgroundColor: '#94a3b8',

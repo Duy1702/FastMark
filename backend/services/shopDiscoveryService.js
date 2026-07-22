@@ -4,12 +4,20 @@ const { getShopCategoryNameMap } = require("./shopCategoryService");
 const User = require("../models/User");
 const Product = require("../models/Product");
 const ProductVariant = require("../models/ProductVariant");
+const {
+  loadProductImagesByProductIds,
+  toPublicProductImages,
+} = require("./productService");
 const Review = require("../models/Review");
-const { USER_ROLE } = require("../constants/sellerVerification");
-const { PRODUCT_STATUS } = require("../constants/productStatus");
+const { USER_ROLE } = require("../constants");
+const { PRODUCT_STATUS } = require("../constants");
+const {
+  isSubscriptionActive,
+  activeSubscriptionFilter,
+} = require("../constants");
 
 const EARTH_RADIUS_METERS = 6371000;
-const MAX_SEARCH_RADIUS_METERS = 10000;
+const MAX_SEARCH_RADIUS_METERS = 30000;
 
 function isUnlimitedRadius(radiusMeters) {
   const raw = String(radiusMeters ?? "")
@@ -63,6 +71,17 @@ function toListVariants(variants = []) {
   }));
 }
 
+function resolveProductGallery(product, imageDocs = []) {
+  const fromImages = toPublicProductImages(imageDocs).map((image) => image.imageUrl);
+  if (fromImages.length > 0) {
+    return fromImages;
+  }
+  if (Array.isArray(product.Thumbnail)) {
+    return product.Thumbnail.filter(Boolean);
+  }
+  return product.Thumbnail ? [product.Thumbnail] : [];
+}
+
 function toRadians(value) {
   return (Number(value) * Math.PI) / 180;
 }
@@ -108,6 +127,7 @@ function shopMatchesKeyword(shop, seller, keyword) {
     shop.shopName,
     shop.shopUsername,
     shop.description,
+    shop.addressHeThong,
     shop.address,
     seller?.FullName,
     seller?.UserName,
@@ -208,6 +228,10 @@ function pickShopText(shop, ...keys) {
   return "";
 }
 
+function pickString(value) {
+  return String(value || "").trim();
+}
+
 function resolveShopCategory(categoryMap, categoryId) {
   const entry = categoryMap.get(String(categoryId));
   if (!entry) {
@@ -230,15 +254,18 @@ function toPublicStore(
   followCount = 0,
   totalLikes = 0
 ) {
+  // Một identity: tên / @ lấy từ User (buyer), shop chỉ là storefront.
+  const ownerName = pickString(user?.FullName) || pickString(user?.UserName) || "";
+  const ownerUsername = pickString(user?.UserName) || "";
   const shopDisplayName =
+    ownerName ||
     shop.shopName ||
     (shop.shopUsername ? `@${shop.shopUsername}` : "") ||
-    user?.FullName ||
-    user?.UserName ||
     "Gian hàng Fastmark";
 
   const systemAddress = pickShopText(
     shop,
+    "addressHeThong",
     "DiaChiHeThong",
     "DiachiHethong",
     "systemAddress",
@@ -246,53 +273,67 @@ function toPublicStore(
   );
   const openTime = pickShopText(shop, "openTime", "open_time");
   const closeTime = pickShopText(shop, "closeTime", "close_time");
-  const shopUsername = pickShopText(shop, "shopUsername", "shop_username");
+  const shopUsername = ownerUsername || pickShopText(shop, "shopUsername", "shop_username");
+  const pinHours = Boolean(shop.pinHours);
+  const showHours = pinHours;
+  const ownerFollowers =
+    Number(user?.FollowersCount) || Number(followCount) || Number(shop.followersCount) || 0;
+  const depositPercent = Math.max(
+    0,
+    Math.min(100, Number(shop.cocTien ?? shop.depositPercent) || 0)
+  );
 
   return {
     id: String(shop._id),
     name: shopDisplayName,
-    shop_name: shop.shopName || shopDisplayName,
-    shopName: shop.shopName || shopDisplayName,
+    shop_name: shopDisplayName,
+    shopName: shopDisplayName,
     shop_username: shopUsername,
     shopUsername,
+    fullName: ownerName || shopDisplayName,
+    userName: shopUsername,
     categoryId: shop.categoryId ? String(shop.categoryId) : "",
     categoryName,
     type: "shop",
     latitude: shop.latitude,
     longitude: shop.longitude,
-    address: pickShopText(shop, "address"),
+    address: systemAddress || pickShopText(shop, "address"),
     system_address: systemAddress,
     systemAddress,
-    phone: pickShopText(shop, "phone") || user?.Phone || "",
-    zalo: pickShopText(shop, "phone") || user?.Phone || "",
+    addressHeThong: systemAddress,
+    phone: user?.Phone || "",
+    zalo: user?.Phone || "",
     intro: pickShopText(shop, "description") || "",
-    open_time: openTime,
-    openTime,
-    close_time: closeTime,
-    closeTime,
+    open_time: showHours ? openTime : "",
+    openTime: showHours ? openTime : "",
+    close_time: showHours ? closeTime : "",
+    closeTime: showHours ? closeTime : "",
+    pinHours,
     is_open: Number(shop.isOpen) === 1,
     isOpen: Number(shop.isOpen) === 1 ? 1 : 0,
     rating_avg: Number(shop.averageRating) || 0,
     review_count: Number(shop.totalReviews) || 0,
-    follow_count: Number(followCount) || Number(shop.followersCount) || 0,
+    follow_count: ownerFollowers,
     product_count: Number(shop.totalProducts) || Number(productCount) || 0,
     total_products: Number(shop.totalProducts) || Number(productCount) || 0,
     sold_count: Number(shop.soldCount) || 0,
     total_likes: Number(totalLikes) || 0,
     owner_user_id: shop.userId ? String(shop.userId) : "",
     ownerUserId: shop.userId ? String(shop.userId) : "",
-    // Shop branding only — never borrow the seller's personal User.Avatar.
-    image_url: shop?.avatar || "",
-    cover_image_url: shop?.avatar || "",
+    image_url: user?.Avatar || "",
+    cover_image_url: user?.Avatar || "",
     distance_meters: Math.round(distanceMeters),
     is_registered_shop: true,
+    depositPercent,
+    cocTien: depositPercent,
+    subscriptionActive: true,
   };
 }
 
 async function listNearbyShops({ latitude, longitude, radiusMeters = 2000, limit = 50 }) {
   const lat = Number(latitude);
   const lng = Number(longitude);
-  const radius = clampSearchRadius(radiusMeters, 2000);
+  const radius = resolveSearchRadius(radiusMeters, 2000);
   const maxResults = Math.min(Math.max(Number(limit) || 50, 1), 100);
 
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
@@ -305,6 +346,7 @@ async function listNearbyShops({ latitude, longitude, radiusMeters = 2000, limit
     latitude: { $ne: null },
     longitude: { $ne: null },
     status: { $ne: 0 },
+    ...activeSubscriptionFilter(),
   }).lean();
 
   const sellerIds = shops
@@ -337,7 +379,7 @@ async function listNearbyShops({ latitude, longitude, radiusMeters = 2000, limit
       Number(shop.longitude)
     );
 
-    if (distanceMeters > radius) {
+    if (radius != null && distanceMeters > radius) {
       continue;
     }
 
@@ -400,6 +442,7 @@ async function searchShops({
     latitude: { $ne: null },
     longitude: { $ne: null },
     status: { $ne: 0 },
+    ...activeSubscriptionFilter(),
   }).lean();
 
   const sellerIds = shops
@@ -531,7 +574,7 @@ async function searchShops({
 
 async function getPublicShopById(shopId, { latitude, longitude } = {}) {
   const shop = await ShopProfile.findById(shopId).lean();
-  if (!shop) {
+  if (!shop || !isSubscriptionActive(shop)) {
     const error = new Error("Không tìm thấy gian hàng.");
     error.statusCode = 404;
     throw error;
@@ -588,18 +631,24 @@ async function getPublicShopById(shopId, { latitude, longitude } = {}) {
 
 async function listPublicProductsByShopId(shopId) {
   const shop = await ShopProfile.findById(shopId).lean();
-  if (!shop) {
+  if (!shop || !isSubscriptionActive(shop)) {
     const error = new Error("Không tìm thấy gian hàng.");
     error.statusCode = 404;
     throw error;
   }
 
   const products = await Product.find(activeProductFilter({ ShopId: shop._id }))
-    .sort({ CreatedAt: -1 })
+    .sort({ pinProduct: -1, CreatedAt: -1 })
     .lean();
 
-  const productIds = products.map((product) => product._id);
-  const variants = await ProductVariant.find({ ProductId: { $in: productIds } }).lean();
+  const { sortProductsByPin } = require("./productService");
+  const ordered = sortProductsByPin(products);
+
+  const productIds = ordered.map((product) => product._id);
+  const [variants, imagesByProduct] = await Promise.all([
+    ProductVariant.find({ ProductId: { $in: productIds } }).lean(),
+    loadProductImagesByProductIds(productIds),
+  ]);
   const variantsByProduct = variants.reduce((map, variant) => {
     const key = String(variant.ProductId);
     if (!map.has(key)) {
@@ -609,8 +658,14 @@ async function listPublicProductsByShopId(shopId) {
     return map;
   }, new Map());
 
-  return products.map((product) => {
+  const { attachPromotionDto } = require("./productPromotionService");
+
+  return ordered.map((product) => {
     const productVariants = variantsByProduct.get(String(product._id)) || [];
+    const thumbnails = resolveProductGallery(
+      product,
+      imagesByProduct.get(String(product._id)) || []
+    );
     const variantPrices = productVariants.map((variant) => Number(variant.Price) || 0);
     const minPrice =
       variantPrices.length > 0
@@ -621,24 +676,27 @@ async function listPublicProductsByShopId(shopId) {
         ? Math.max(...variantPrices)
         : Number(product.MaxPrice) || minPrice;
 
-    return {
+    const dto = {
       id: String(product._id),
       store_id: String(shop._id),
       name: product.ProductName,
       price: minPrice,
       minPrice,
       maxPrice: maxPrice || minPrice,
+      pinProduct: Math.max(0, Math.min(2, Number(product.pinProduct) || 0)),
       soldCount: Number(product.SoldCount) || 0,
       likeCount: Number(product.LikeCount) || 0,
       donVi: product.DonVi || "",
       description: product.Description || "",
-      image_emoji: product.Thumbnail ? "🖼️" : "🛒",
-      thumbnail: product.Thumbnail || "",
+      image_emoji: thumbnails[0] ? "🖼️" : "🛒",
+      thumbnail: thumbnails[0] || "",
+      thumbnails,
       variantCount: productVariants.length,
       isOutOfStock: computeIsOutOfStock(productVariants),
       remainingQuantity: computeRemainingQuantity(productVariants),
       variants: toListVariants(productVariants),
     };
+    return attachPromotionDto(dto, product);
   });
 }
 
@@ -667,6 +725,7 @@ async function discoverProducts({
     latitude: { $ne: null },
     longitude: { $ne: null },
     status: { $ne: 0 },
+    ...activeSubscriptionFilter(),
   }).lean();
 
   const sellerIds = shops
@@ -740,7 +799,10 @@ async function discoverProducts({
   }
 
   const productIds = products.map((product) => product._id);
-  const variants = await ProductVariant.find({ ProductId: { $in: productIds } }).lean();
+  const [variants, imagesByProduct] = await Promise.all([
+    ProductVariant.find({ ProductId: { $in: productIds } }).lean(),
+    loadProductImagesByProductIds(productIds),
+  ]);
   const variantsByProduct = variants.reduce((map, variant) => {
     const key = String(variant.ProductId);
     if (!map.has(key)) {
@@ -751,6 +813,7 @@ async function discoverProducts({
   }, new Map());
 
   const { getProductCategoryNameMap } = require("./productCategoryService");
+  const { attachPromotionDto } = require("./productPromotionService");
   const categoryNameMap = await getProductCategoryNameMap(
     products.map((product) => product.CategoryId)
   );
@@ -758,36 +821,50 @@ async function discoverProducts({
   const enriched = products.map((product) => {
     const shopMeta = shopDistanceMap.get(String(product.ShopId));
     const shop = shopMeta?.shop;
+    const seller = shop ? sellerMap.get(String(shop.userId)) : null;
+    const storeName =
+      pickString(seller?.FullName) ||
+      pickString(seller?.UserName) ||
+      pickString(shop?.shopName) ||
+      (shop?.shopUsername ? `@${shop.shopUsername}` : "");
     const productVariants = variantsByProduct.get(String(product._id)) || [];
+    const thumbnails = resolveProductGallery(
+      product,
+      imagesByProduct.get(String(product._id)) || []
+    );
     const variantPrices = productVariants.map((variant) => Number(variant.Price) || 0);
     const minPrice =
       variantPrices.length > 0 ? Math.min(...variantPrices) : Number(product.MinPrice) || 0;
     const maxPrice =
       variantPrices.length > 0 ? Math.max(...variantPrices) : Number(product.MaxPrice) || minPrice;
 
-    return {
-      id: String(product._id),
-      store_id: String(product.ShopId),
-      name: product.ProductName,
-      price: minPrice,
-      minPrice,
-      maxPrice: maxPrice || minPrice,
-      soldCount: Number(product.SoldCount) || 0,
-      likeCount: Number(product.LikeCount) || 0,
-      donVi: product.DonVi || "",
-      description: product.Description || "",
-      image_emoji: product.Thumbnail ? "🖼️" : "🛒",
-      thumbnail: product.Thumbnail || "",
-      variantCount: productVariants.length,
-      categoryId: String(product.CategoryId || ""),
-      categoryName: categoryNameMap.get(String(product.CategoryId)) || "",
-      storeName: shop?.shopName || shop?.description || "",
-      location: shop?.address || "",
-      distanceMeters: shopMeta?.distanceMeters ?? null,
-      isOutOfStock: computeIsOutOfStock(productVariants),
-      remainingQuantity: computeRemainingQuantity(productVariants),
-      variants: toListVariants(productVariants),
-    };
+    return attachPromotionDto(
+      {
+        id: String(product._id),
+        store_id: String(product.ShopId),
+        name: product.ProductName,
+        price: minPrice,
+        minPrice,
+        maxPrice: maxPrice || minPrice,
+        soldCount: Number(product.SoldCount) || 0,
+        likeCount: Number(product.LikeCount) || 0,
+        donVi: product.DonVi || "",
+        description: product.Description || "",
+        image_emoji: thumbnails[0] ? "🖼️" : "🛒",
+        thumbnail: thumbnails[0] || "",
+        thumbnails,
+        variantCount: productVariants.length,
+        categoryId: String(product.CategoryId || ""),
+        categoryName: categoryNameMap.get(String(product.CategoryId)) || "",
+        storeName,
+        location: shop?.addressHeThong || shop?.address || "",
+        distanceMeters: shopMeta?.distanceMeters ?? null,
+        isOutOfStock: computeIsOutOfStock(productVariants),
+        remainingQuantity: computeRemainingQuantity(productVariants),
+        variants: toListVariants(productVariants),
+      },
+      product
+    );
   });
 
   enriched.sort((left, right) => {
@@ -810,26 +887,45 @@ async function listPublicReviewsByShopId(shopId) {
     throw error;
   }
 
+  const {
+    loadReviewImagesMap,
+    toPublicReview,
+  } = require("./buyerReviewService");
+
   const rows = await Review.find({
-    storeId: String(shopId),
+    shopId,
     isDeleted: { $ne: true },
     isHidden: { $ne: true },
-    legacyExternalId: { $not: /^seed-admin-review/i },
   })
     .sort({ CreatedAt: -1 })
     .lean();
 
-  return rows.map((row) => ({
-    id: String(row._id),
-    store_id: row.storeId || "",
-    user_name: row.userName || "Khách hàng",
-    rating: row.rating,
-    comment: row.comment || "",
-    image_url: row.imageUrl || "",
-    imageUrl: row.imageUrl || "",
-    created_at: row.CreatedAt || null,
-    createdAt: row.CreatedAt || null,
-  }));
+  const imagesByReview = await loadReviewImagesMap(rows.map((row) => row._id));
+  const userIds = rows.map((row) => row.userId).filter(Boolean);
+  const productIds = rows.map((row) => row.productId).filter(Boolean);
+  const User = require("../models/User");
+  const Product = require("../models/Product");
+  const [users, products] = await Promise.all([
+    userIds.length
+      ? User.find({ _id: { $in: userIds } }).select("FullName UserName Avatar").lean()
+      : [],
+    productIds.length
+      ? Product.find({ _id: { $in: productIds } }).select("ProductName").lean()
+      : [],
+  ]);
+  const userById = new Map(users.map((user) => [String(user._id), user]));
+  const productById = new Map(products.map((product) => [String(product._id), product]));
+
+  return Promise.all(
+    rows.map((row) =>
+      toPublicReview(row, {
+        user: userById.get(String(row.userId)),
+        product: productById.get(String(row.productId)),
+        shop,
+        images: imagesByReview.get(String(row._id)) || [],
+      })
+    )
+  );
 }
 
 module.exports = {

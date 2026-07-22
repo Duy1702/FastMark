@@ -9,7 +9,13 @@ import {
 } from 'react-native';
 
 import { getMyNotificationsOnBackend } from '../../api/notificationApi';
-
+import {
+  notificationMatchesAudience,
+  prependUniqueNotification,
+} from '../../core/utils/notificationRealtime';
+import { useNotificationSocket } from '../../hooks/useNotificationSocket';
+import { useScreenInsets } from '../../hooks/useScreenInsets';
+import SubScreenHeader from '../shared/components/SubScreenHeader';
 import NotificationDetailScreen from './NotificationDetailScreen';
 
 function formatNotificationTime(value) {
@@ -54,7 +60,13 @@ function capitalizeFirstLetter(value = '') {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
-export default function NotificationsScreen({ onNavigationStateChange, audience = 'buyer' }) {
+export default function NotificationsScreen({
+  onNavigationStateChange,
+  audience = 'buyer',
+  onBack = null,
+  isScreenActive = true,
+}) {
+  const insets = useScreenInsets();
   const [notifications, setNotifications] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState('');
@@ -75,13 +87,33 @@ export default function NotificationsScreen({ onNavigationStateChange, audience 
     }
   }, [audience]);
 
-  useEffect(() => {
-    loadNotifications();
-  }, [loadNotifications]);
+  const handleRealtimeNotification = useCallback(
+    (notification) => {
+      if (!isScreenActive || !notificationMatchesAudience(notification, audience)) {
+        return;
+      }
+
+      setNotifications((current) => prependUniqueNotification(current, notification));
+    },
+    [audience, isScreenActive]
+  );
+
+  useNotificationSocket({
+    enabled: isScreenActive,
+    onNotificationNew: handleRealtimeNotification,
+  });
 
   useEffect(() => {
-    onNavigationStateChange?.(Boolean(selectedNotification));
-  }, [onNavigationStateChange, selectedNotification]);
+    if (!isScreenActive) {
+      setSelectedNotification(null);
+      return;
+    }
+    loadNotifications();
+  }, [isScreenActive, loadNotifications]);
+
+  useEffect(() => {
+    onNavigationStateChange?.(Boolean(isScreenActive && selectedNotification));
+  }, [isScreenActive, onNavigationStateChange, selectedNotification]);
 
   if (selectedNotification) {
     return (
@@ -110,21 +142,32 @@ export default function NotificationsScreen({ onNavigationStateChange, audience 
 
   return (
     <View style={styles.screen}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Thông báo</Text>
-      </View>
+      {onBack ? (
+        <SubScreenHeader title="Thông báo" onBack={onBack} />
+      ) : (
+        <View style={styles.headerPlain}>
+          <Text style={styles.titlePlain}>Thông báo</Text>
+        </View>
+      )}
 
       {loadError ? <Text style={styles.errorText}>{loadError}</Text> : null}
 
-      {isLoading ? (
+      {isLoading && notifications.length === 0 ? (
         <View style={styles.centered}>
-          <ActivityIndicator color="#0d7377" />
+          <ActivityIndicator color="#076F32" />
         </View>
       ) : (
         <FlatList
           data={notifications}
           keyExtractor={(item) => String(item.id)}
-          contentContainerStyle={styles.listContent}
+          contentContainerStyle={[
+            styles.listContent,
+            {
+              paddingBottom: onBack
+                ? insets.nestedScrollPaddingBottom
+                : insets.tabRootScrollPaddingBottom,
+            },
+          ]}
           refreshing={isLoading}
           onRefresh={loadNotifications}
           ListEmptyComponent={
@@ -159,14 +202,18 @@ export default function NotificationsScreen({ onNavigationStateChange, audience 
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: '#f8fafc' },
-  header: {
+  screen: { flex: 1, backgroundColor: '#f1f5f9' },
+  headerPlain: {
     paddingTop: 12,
     paddingHorizontal: 16,
     paddingBottom: 12,
-    backgroundColor: '#ffffff',
+    backgroundColor: '#f1f5f9',
   },
-  title: { fontSize: 24, fontWeight: '900', color: '#0f172a' },
+  titlePlain: {
+    fontSize: 24,
+    fontWeight: '900',
+    color: '#0f172a',
+  },
   errorText: {
     color: '#dc2626',
     marginHorizontal: 16,
@@ -174,7 +221,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  listContent: { paddingHorizontal: 16, paddingBottom: 32, paddingTop: 8 },
+  listContent: { paddingHorizontal: 16, paddingTop: 8 },
   listItem: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -189,12 +236,12 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: '#e8f3f1',
+    backgroundColor: '#E6F4EC',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
   },
-  avatarText: { fontSize: 18, fontWeight: '800', color: '#0d7377' },
+  avatarText: { fontSize: 18, fontWeight: '800', color: '#076F32' },
   listBody: { flex: 1, minWidth: 0 },
   listTopRow: {
     flexDirection: 'row',

@@ -50,7 +50,7 @@ export default function ForgotPasswordScreen({ onBack, onSuccess }) {
   async function handleRequestOtp() {
     const normalizedEmail = email.trim().toLowerCase();
     if (!normalizedEmail || !normalizedEmail.includes('@')) {
-      setError('Vui l�ng nh?p email h?p l?.');
+      setError('Vui lòng nhập email hợp lệ.');
       return;
     }
 
@@ -59,11 +59,13 @@ export default function ForgotPasswordScreen({ onBack, onSuccess }) {
     try {
       const payload = await requestPasswordResetOnBackend({ email: normalizedEmail });
       setEmail(normalizedEmail);
-      setResendCooldown(payload.data?.verification?.resendCooldownSeconds || 180);
-      setSuccessMessage('�� g?i m� OTP d?n email c?a b?n.');
+      setResendCooldown(
+        Number(payload.data?.verification?.resendCooldownSeconds) || 120
+      );
+      setSuccessMessage('Đã gửi mã OTP đến email của bạn.');
       setStep(STEPS.OTP);
     } catch (requestError) {
-      setError(requestError.message || 'Kh�ng g?i du?c OTP.');
+      setError(requestError.message || 'Không gửi được OTP.');
     } finally {
       setIsLoading(false);
     }
@@ -71,7 +73,7 @@ export default function ForgotPasswordScreen({ onBack, onSuccess }) {
 
   async function handleVerifyOtp() {
     if (!otp.trim() || otp.trim().length < 6) {
-      setError('Vui l�ng nh?p m� OTP 6 s?.');
+      setError('Vui lòng nhập mã OTP 6 số.');
       return;
     }
 
@@ -80,10 +82,28 @@ export default function ForgotPasswordScreen({ onBack, onSuccess }) {
     try {
       const data = await verifyPasswordResetOtpOnBackend({ email, code: otp.trim() });
       setResetToken(data.resetToken);
-      setSuccessMessage('X�c th?c OTP th�nh c�ng. Nh?p m?t kh?u m?i.');
+      setSuccessMessage('Xác thực OTP thành công. Nhập mật khẩu mới.');
       setStep(STEPS.PASSWORD);
     } catch (verifyError) {
-      setError(verifyError.message || 'M� OTP kh�ng d�ng.');
+      const errData = verifyError?.data || {};
+      if (errData.mustUseNewCode) {
+        setOtp('');
+        setResendCooldown(
+          Number(errData.resendCooldownSeconds) ||
+            (errData.resendAvailableAt
+              ? Math.max(
+                  0,
+                  Math.ceil((new Date(errData.resendAvailableAt).getTime() - Date.now()) / 1000)
+                )
+              : 120)
+        );
+        setError(
+          verifyError.message ||
+            'Bạn đã nhập sai 5 lần. Hệ thống đã gửi mã mới — vui lòng nhập mã mới.'
+        );
+        return;
+      }
+      setError(verifyError.message || 'Mã OTP không đúng.');
     } finally {
       setIsLoading(false);
     }
@@ -91,11 +111,11 @@ export default function ForgotPasswordScreen({ onBack, onSuccess }) {
 
   async function handleResetPassword() {
     if (newPassword.length < 6) {
-      setError('M?t kh?u ph?i c� �t nh?t 6 k� t?.');
+      setError('Mật khẩu phải có ít nhất 6 ký tự.');
       return;
     }
     if (newPassword !== confirmPassword) {
-      setError('M?t kh?u x�c nh?n kh�ng kh?p.');
+      setError('Mật khẩu xác nhận không khớp.');
       return;
     }
 
@@ -103,10 +123,10 @@ export default function ForgotPasswordScreen({ onBack, onSuccess }) {
     setError('');
     try {
       await resetPasswordOnBackend({ email, resetToken, newPassword });
-      setSuccessMessage('�� d?t l?i m?t kh?u th�nh c�ng.');
+      setSuccessMessage('Đã đặt lại mật khẩu thành công.');
       onSuccess?.();
     } catch (resetError) {
-      setError(resetError.message || 'Kh�ng d?t l?i du?c m?t kh?u.');
+      setError(resetError.message || 'Không đặt lại được mật khẩu.');
     } finally {
       setIsLoading(false);
     }
@@ -127,15 +147,15 @@ export default function ForgotPasswordScreen({ onBack, onSuccess }) {
   const primaryLabel =
     step === STEPS.EMAIL
       ? isLoading
-        ? '�ang g?i OTP...'
-        : 'G?i m� OTP'
+        ? 'Đang gừi OTP...'
+        : 'Gừi mã OTP'
       : step === STEPS.OTP
         ? isLoading
-          ? '�ang x�c th?c...'
-          : 'X�c th?c OTP'
+          ? 'Đang xác thực...'
+          : 'Xác thực OTP'
         : isLoading
-          ? '�ang c?p nh?t...'
-          : '�?t m?t kh?u m?i';
+          ? 'Đang cập nhật...'
+          : 'Đặt mật khẩu mới';
 
   return (
     <KeyboardAvoidingView
@@ -150,15 +170,15 @@ export default function ForgotPasswordScreen({ onBack, onSuccess }) {
             size={40}
             style={styles.backButton}
           />
-          <Text style={styles.headerTitle}>Qu�n m?t kh?u</Text>
+          <Text style={styles.headerTitle}>Quên mật khẩu</Text>
         </View>
 
         <Text style={styles.subtitle}>
           {step === STEPS.EMAIL
-            ? 'Nh?p email d? nh?n m� OTP d?t l?i m?t kh?u.'
+            ? 'Nhập email để nhận mã OTP đặt lại mật khẩu.'
             : step === STEPS.OTP
-              ? 'Nh?p m� OTP d� g?i d?n email c?a b?n.'
-              : 'T?o m?t kh?u m?i cho t�i kho?n FastMark.'}
+              ? 'Nhập mã OTP đã gừi đến email của bạn.'
+              : 'Tạo mật khẩu mới cho tài khoản FastMark.'}
         </Text>
 
         <View style={styles.stepsRow}>
@@ -185,14 +205,14 @@ export default function ForgotPasswordScreen({ onBack, onSuccess }) {
           {step === STEPS.OTP ? (
             <>
               <AuthInput
-                label="M� OTP"
+                label="Mã OTP"
                 value={otp}
                 onChangeText={(value) => {
                   setOtp(value.replace(/\D/g, '').slice(0, 6));
                   setError('');
                 }}
                 keyboardType="number-pad"
-                placeholder="6 s?"
+                placeholder="6 số"
               />
               <Pressable
                 disabled={isLoading || resendCooldown > 0}
@@ -201,8 +221,8 @@ export default function ForgotPasswordScreen({ onBack, onSuccess }) {
               >
                 <Text style={styles.resendText}>
                   {resendCooldown > 0
-                    ? `G?i l?i sau ${resendCooldown}s`
-                    : 'G?i l?i m� OTP'}
+                    ? `Gừi lại sau ${resendCooldown}s`
+                    : 'Gừi lại mã OTP'}
                 </Text>
               </Pressable>
             </>
@@ -211,24 +231,24 @@ export default function ForgotPasswordScreen({ onBack, onSuccess }) {
           {step === STEPS.PASSWORD ? (
             <>
               <AuthInput
-                label="M?t kh?u m?i"
+                label="Mật khẩu mới"
                 value={newPassword}
                 onChangeText={(value) => {
                   setNewPassword(value);
                   setError('');
                 }}
                 secureTextEntry
-                placeholder="�t nh?t 6 k� t?"
+                placeholder="Ít nhất 6 ký tự"
               />
               <AuthInput
-                label="X�c nh?n m?t kh?u"
+                label="Xác nhận mật khẩu"
                 value={confirmPassword}
                 onChangeText={(value) => {
                   setConfirmPassword(value);
                   setError('');
                 }}
                 secureTextEntry
-                placeholder="Nh?p l?i m?t kh?u"
+                placeholder="Nhập lại mật khẩu"
               />
             </>
           ) : null}

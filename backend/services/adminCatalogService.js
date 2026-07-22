@@ -6,13 +6,12 @@ const Product = require("../models/Product");
 const ProductVariant = require("../models/ProductVariant");
 const ProductCategory = require("../models/ProductCategory");
 const Reservation = require("../models/Reservation");
-const DealOffer = require("../models/DealOffer");
 const Report = require("../models/Report");
 const Review = require("../models/Review");
-const { SHOP_STATUS, SHOP_OPEN } = require("../constants/shopStatus");
-const { PRODUCT_STATUS } = require("../constants/productStatus");
-const { RESERVATION_STATUS } = require("../constants/reservationStatus");
-const { DEAL_OFFER_STATUS, DEAL_OFFER_BY } = require("../constants/dealOfferStatus");
+const FavoriteProduct = require("../models/FavoriteProduct");
+const { SHOP_STATUS, SHOP_OPEN } = require("../constants");
+const { PRODUCT_STATUS } = require("../constants");
+const { RESERVATION_STATUS } = require("../constants");
 
 const SHOP_STATUS_LABELS = {
   [SHOP_STATUS.ACTIVE]: "Hoạt động",
@@ -25,16 +24,13 @@ const SHOP_OPEN_LABELS = {
 };
 
 const RESERVATION_STATUS_LABELS = {
-  [RESERVATION_STATUS.PENDING]: "Chờ xác nhận",
-  [RESERVATION_STATUS.CONFIRMED]: "Đã xác nhận",
-  [RESERVATION_STATUS.COMPLETED]: "Đã nhận hàng",
-  [RESERVATION_STATUS.CANCELLED]: "Đã hủy",
-};
-
-const DEAL_STATUS_LABELS = {
-  [DEAL_OFFER_STATUS.PENDING]: "Đang thương lượng",
-  [DEAL_OFFER_STATUS.ACCEPTED]: "Đã chấp nhận",
-  [DEAL_OFFER_STATUS.REJECTED]: "Đã từ chối / khóa",
+  [RESERVATION_STATUS.PENDING_SELLER_CONFIRMATION]: "Chờ shop xác nhận",
+  [RESERVATION_STATUS.REJECTED]: "Đã từ chối",
+  [RESERVATION_STATUS.WAITING_PICKUP]: "Chờ nhận hàng",
+  [RESERVATION_STATUS.COMPLETED]: "Hoàn thành",
+  [RESERVATION_STATUS.DISPUTED]: "Tranh chấp",
+  [RESERVATION_STATUS.AUTO_COMPLETED]: "Tự hoàn thành",
+  [RESERVATION_STATUS.REFUNDED]: "Đã hoàn cọc",
 };
 
 function createServiceError(message, statusCode = 400) {
@@ -122,13 +118,15 @@ async function listShops(query = {}) {
 
   const items = shops.map((shop) => {
     const owner = ownerMap.get(String(shop.userId || ""));
+    const shopName = owner?.FullName || owner?.UserName || shop.shopName || "";
+    const shopUsername = owner?.UserName || shop.shopUsername || "";
     return {
       id: String(shop._id),
-      shopName: shop.shopName || "",
-      shopUsername: shop.shopUsername || "",
-      avatar: shop.avatar || "",
-      address: shop.address || shop.DiaChiHeThong || "",
-      phone: shop.phone || "",
+      shopName,
+      shopUsername,
+      avatar: owner?.Avatar || "",
+      address: shop.addressHeThong || shop.DiaChiHeThong || shop.address || "",
+      phone: owner?.Phone || shop.phone || "",
       categoryId: shop.categoryId ? String(shop.categoryId) : "",
       categoryName: categoryMap.get(String(shop.categoryId || "")) || "",
       status: shop.status,
@@ -139,6 +137,7 @@ async function listShops(query = {}) {
       totalProducts: Number(shop.totalProducts) || 0,
       followersCount: Number(shop.followersCount) || 0,
       soldCount: Number(shop.soldCount) || 0,
+      subscriptionActive: Boolean(shop.isActive),
       suspendedUntil: shop.suspendedUntil || null,
       permanentlyClosedAt: shop.permanentlyClosedAt || null,
       createdAt: shop.CreatedAt || null,
@@ -191,15 +190,19 @@ async function getShopDetail(shopId) {
       .lean(),
   ]);
 
+  const { loadProductImagesByProductIds, toPublicProductImages } = require("./productService");
+  const imagesByProduct = await loadProductImagesByProductIds(products.map((item) => item._id));
+
   return {
     id: String(shop._id),
-    shopName: shop.shopName || "",
-    shopUsername: shop.shopUsername || "",
-    avatar: shop.avatar || "",
+    shopName: owner?.FullName || owner?.UserName || shop.shopName || "",
+    shopUsername: owner?.UserName || shop.shopUsername || "",
+    avatar: owner?.Avatar || "",
     description: shop.description || "",
-    address: shop.address || "",
-    systemAddress: shop.DiaChiHeThong || "",
-    phone: shop.phone || "",
+    address: shop.addressHeThong || shop.address || "",
+    addressHeThong: shop.addressHeThong || shop.DiaChiHeThong || shop.address || "",
+    systemAddress: shop.addressHeThong || shop.DiaChiHeThong || shop.address || "",
+    phone: owner?.Phone || shop.phone || "",
     openTime: shop.openTime || "",
     closeTime: shop.closeTime || "",
     categoryId: shop.categoryId ? String(shop.categoryId) : "",
@@ -209,10 +212,11 @@ async function getShopDetail(shopId) {
     isOpen: shop.isOpen,
     isOpenLabel: SHOP_OPEN_LABELS[shop.isOpen] || "Không rõ",
     averageRating: Number(shop.averageRating) || 0,
-    totalProducts: Number(shop.totalProducts) || 0,
+    totalProducts: Number(shop.totalProducts) || products.length || 0,
     totalReviews: Number(shop.totalReviews) || 0,
     followersCount: Number(shop.followersCount) || 0,
     soldCount: Number(shop.soldCount) || 0,
+    subscriptionActive: Boolean(shop.isActive),
     visibilityRestrictedUntil: shop.visibilityRestrictedUntil || null,
     suspendedUntil: shop.suspendedUntil || null,
     permanentlyClosedAt: shop.permanentlyClosedAt || null,
@@ -229,16 +233,26 @@ async function getShopDetail(shopId) {
           status: owner.Status,
         }
       : null,
-    products: products.map((product) => ({
-      id: String(product._id),
-      productName: product.ProductName || "",
-      thumbnail: product.Thumbnail || "",
-      minPrice: Number(product.MinPrice) || 0,
-      maxPrice: Number(product.MaxPrice) || 0,
-      status: product.Status,
-      soldCount: Number(product.SoldCount) || 0,
-      likeCount: Number(product.LikeCount) || 0,
-    })),
+    products: products.map((product) => {
+      const thumbs = toPublicProductImages(imagesByProduct.get(String(product._id)) || []).map(
+        (image) => image.imageUrl
+      );
+      const legacy = Array.isArray(product.Thumbnail)
+        ? product.Thumbnail.filter(Boolean)
+        : product.Thumbnail
+          ? [String(product.Thumbnail)]
+          : [];
+      return {
+        id: String(product._id),
+        productName: product.ProductName || "",
+        thumbnail: thumbs[0] || legacy[0] || "",
+        minPrice: Number(product.MinPrice) || 0,
+        maxPrice: Number(product.MaxPrice) || 0,
+        status: product.Status,
+        soldCount: Number(product.SoldCount) || 0,
+        likeCount: Number(product.LikeCount) || 0,
+      };
+    }),
     reservations: reservations.map((item) => ({
       id: String(item._id),
       status: item.status,
@@ -316,7 +330,7 @@ async function deleteShop(shopId) {
 
 async function listProducts(query = {}) {
   const { page, limit, skip } = parsePagination(query);
-  const search = pickString(query.search);
+  const search = pickString(query.search).replace(/^@+/, "");
   const status = pickString(query.status);
   const shopId = toObjectId(query.shopId);
   const categoryId = toObjectId(query.categoryId);
@@ -333,7 +347,27 @@ async function listProducts(query = {}) {
   }
   if (search) {
     const regex = new RegExp(escapeRegex(search), "i");
-    filter.$or = [{ ProductName: regex }, { Description: regex }, { DonVi: regex }];
+    const matchedUsers = await User.find({
+      $or: [{ FullName: regex }, { UserName: regex }],
+    })
+      .select("_id")
+      .lean();
+    const matchedShopIds = matchedUsers.length
+      ? (
+          await ShopProfile.find({
+            userId: { $in: matchedUsers.map((user) => user._id) },
+          })
+            .select("_id")
+            .lean()
+        ).map((shop) => shop._id)
+      : [];
+
+    filter.$or = [
+      { ProductName: regex },
+      { Description: regex },
+      { DonVi: regex },
+      ...(matchedShopIds.length ? [{ ShopId: { $in: matchedShopIds } }] : []),
+    ];
   }
 
   const [total, products] = await Promise.all([
@@ -348,24 +382,54 @@ async function listProducts(query = {}) {
 
   const [shops, categories] = await Promise.all([
     shopIds.length
-      ? ShopProfile.find({ _id: { $in: shopIds } }).select("shopName shopUsername avatar").lean()
+      ? ShopProfile.find({ _id: { $in: shopIds } }).select("userId").lean()
       : [],
     categoryIds.length
       ? ProductCategory.find({ _id: { $in: categoryIds } }).select("name categoryName").lean()
       : [],
   ]);
 
-  const shopMap = new Map(shops.map((shop) => [String(shop._id), shop]));
+  const ownerIds = shops.map((shop) => shop.userId).filter(Boolean);
+  const owners = ownerIds.length
+    ? await User.find({ _id: { $in: ownerIds } }).select("FullName UserName").lean()
+    : [];
+  const ownerMap = new Map(owners.map((user) => [String(user._id), user]));
+  const shopMap = new Map(
+    shops.map((shop) => {
+      const owner = ownerMap.get(String(shop.userId || ""));
+      return [
+        String(shop._id),
+        {
+          id: String(shop._id),
+          shopName: owner?.FullName || owner?.UserName || "",
+          shopUsername: owner?.UserName || "",
+          ownerId: shop.userId ? String(shop.userId) : "",
+        },
+      ];
+    })
+  );
   const categoryMap = new Map(
     categories.map((item) => [String(item._id), item.name || item.categoryName || ""])
   );
 
+  const { loadProductImagesByProductIds, toPublicProductImages } = require("./productService");
+  const imagesByProduct = await loadProductImagesByProductIds(products.map((item) => item._id));
+
   const items = products.map((product) => {
     const shop = shopMap.get(String(product.ShopId || ""));
+    const thumbs = toPublicProductImages(imagesByProduct.get(String(product._id)) || []).map(
+      (image) => image.imageUrl
+    );
+    const legacy = Array.isArray(product.Thumbnail)
+      ? product.Thumbnail.filter(Boolean)
+      : product.Thumbnail
+        ? [String(product.Thumbnail)]
+        : [];
+    const thumbnail = thumbs[0] || legacy[0] || "";
     return {
       id: String(product._id),
       productName: product.ProductName || "",
-      thumbnail: product.Thumbnail || "",
+      thumbnail,
       description: product.Description || "",
       donVi: product.DonVi || "",
       minPrice: Number(product.MinPrice) || 0,
@@ -409,44 +473,90 @@ async function getProductDetail(productId) {
     throw createServiceError("Không tìm thấy sản phẩm.", 404);
   }
 
-  const [shop, category, variants] = await Promise.all([
-    product.ShopId
-      ? ShopProfile.findById(product.ShopId).select("shopName shopUsername avatar userId").lean()
-      : null,
-    product.CategoryId
-      ? ProductCategory.findById(product.CategoryId).select("name categoryName").lean()
-      : null,
-    ProductVariant.find({ ProductId: objectId }).sort({ CreatedAt: 1 }).lean(),
-  ]);
+  const [shop, category, variants, imageDocs, favoriteCount, reservationAgg] =
+    await Promise.all([
+      product.ShopId
+        ? ShopProfile.findById(product.ShopId).select("userId").lean()
+        : null,
+      product.CategoryId
+        ? ProductCategory.findById(product.CategoryId).select("name categoryName").lean()
+        : null,
+      ProductVariant.find({ ProductId: objectId }).sort({ CreatedAt: 1 }).lean(),
+      require("./productService").loadProductImages(objectId),
+      FavoriteProduct.countDocuments({ productId: objectId }),
+      Reservation.aggregate([
+        { $match: { productId: objectId } },
+        { $group: { _id: "$status", count: { $sum: 1 } } },
+      ]),
+    ]);
+
+  const owner = shop?.userId
+    ? await User.findById(shop.userId).select("FullName UserName").lean()
+    : null;
+  const shopName = owner?.FullName || owner?.UserName || "";
+  const shopUsername = owner?.UserName || "";
+
+  const reservationsByStatus = {};
+  let reservationCount = 0;
+  reservationAgg.forEach((row) => {
+    reservationsByStatus[row._id] = row.count;
+    reservationCount += row.count;
+  });
+  const completedReservations =
+    (reservationsByStatus[RESERVATION_STATUS.COMPLETED] || 0) +
+    (reservationsByStatus[RESERVATION_STATUS.AUTO_COMPLETED] || 0);
+  const viewCount = Number(product.ViewCount) || 0;
+
+  const { toPublicProductImages } = require("./productService");
+  const thumbnails = toPublicProductImages(imageDocs).map((image) => image.imageUrl);
+  const legacyThumbs = Array.isArray(product.Thumbnail)
+    ? product.Thumbnail.filter(Boolean)
+    : product.Thumbnail
+      ? [product.Thumbnail]
+      : [];
+  const gallery = thumbnails.length > 0 ? thumbnails : legacyThumbs;
 
   return {
     id: String(product._id),
     productName: product.ProductName || "",
-    thumbnail: product.Thumbnail || "",
+    thumbnail: gallery[0] || "",
+    thumbnails: gallery,
+    images: toPublicProductImages(imageDocs),
     description: product.Description || "",
     donVi: product.DonVi || "",
     minPrice: Number(product.MinPrice) || 0,
     maxPrice: Number(product.MaxPrice) || 0,
     status: product.Status,
-    viewCount: Number(product.ViewCount) || 0,
+    viewCount,
     likeCount: Number(product.LikeCount) || 0,
     soldCount: Number(product.SoldCount) || 0,
+    favoriteCount,
+    reservationCount,
+    completedReservations,
+    reservationsByStatus,
+    // % lượt xem chuyển thành đơn giữ hàng.
+    conversionRate: viewCount > 0 ? Number(((reservationCount / viewCount) * 100).toFixed(2)) : 0,
     shopId: product.ShopId ? String(product.ShopId) : "",
-    shopName: shop?.shopName || "",
+    shopName,
+    shopUsername,
     categoryId: product.CategoryId ? String(product.CategoryId) : "",
     categoryName: category?.name || category?.categoryName || "",
     createdAt: product.CreatedAt || null,
-    variants: variants.map((variant) => ({
-      id: String(variant._id),
-      variantName: variant.VariantName || "",
-      price: Number(variant.Price) || 0,
-      quantity: Number(variant.Quantity) || 0,
-      soldCount: Number(variant.SoldCount) || 0,
-      images: (variant.Images || []).map((image) => ({
-        id: String(image._id || ""),
-        imageUrl: image.ImageUrl || "",
-      })),
-    })),
+    variants: variants.map((variant) => {
+      const imageUrl =
+        variant.ImageUrl ||
+        (Array.isArray(variant.Images) ? variant.Images[0]?.ImageUrl : "") ||
+        "";
+      return {
+        id: String(variant._id),
+        variantName: variant.VariantName || "",
+        price: Number(variant.Price) || 0,
+        quantity: Number(variant.Quantity) || 0,
+        soldCount: Number(variant.SoldCount) || 0,
+        imageUrl,
+        images: imageUrl ? [{ id: "", imageUrl }] : [],
+      };
+    }),
   };
 }
 
@@ -606,12 +716,11 @@ async function getReservationDetail(reservationId) {
     throw createServiceError("Không tìm thấy đơn giữ hàng.", 404);
   }
 
-  const [buyer, shop, product, variant, deal] = await Promise.all([
+  const [buyer, shop, product, variant] = await Promise.all([
     reservation.userId ? User.findById(reservation.userId).lean() : null,
     reservation.shopId ? ShopProfile.findById(reservation.shopId).lean() : null,
     reservation.productId ? Product.findById(reservation.productId).lean() : null,
     reservation.variantId ? ProductVariant.findById(reservation.variantId).lean() : null,
-    reservation.dealOfferId ? DealOffer.findById(reservation.dealOfferId).lean() : null,
   ]);
 
   return {
@@ -644,7 +753,7 @@ async function getReservationDetail(reservationId) {
           id: String(shop._id),
           shopName: shop.shopName || "",
           shopUsername: shop.shopUsername || "",
-          address: shop.address || "",
+          address: shop.addressHeThong || shop.address || "",
           phone: shop.phone || "",
         }
       : null,
@@ -662,14 +771,6 @@ async function getReservationDetail(reservationId) {
           price: Number(variant.Price) || 0,
         }
       : null,
-    deal: deal
-      ? {
-          id: String(deal._id),
-          originalPrice: Number(deal.originalPrice) || 0,
-          offeredPrice: Number(deal.offeredPrice) || 0,
-          status: deal.status,
-        }
-      : null,
   };
 }
 
@@ -684,242 +785,32 @@ async function cancelReservation(reservationId, reason = "") {
     throw createServiceError("Không tìm thấy đơn giữ hàng.", 404);
   }
 
-  if (reservation.status === RESERVATION_STATUS.COMPLETED) {
+  if (
+    reservation.status === RESERVATION_STATUS.COMPLETED ||
+    reservation.status === RESERVATION_STATUS.AUTO_COMPLETED
+  ) {
     throw createServiceError("Không thể hủy đơn đã hoàn thành.", 400);
   }
-  if (reservation.status === RESERVATION_STATUS.CANCELLED) {
+  if (
+    reservation.status === RESERVATION_STATUS.REFUNDED ||
+    reservation.status === RESERVATION_STATUS.REJECTED
+  ) {
     return getReservationDetail(reservationId);
   }
 
-  reservation.status = RESERVATION_STATUS.CANCELLED;
+  reservation.status = RESERVATION_STATUS.REFUNDED;
   reservation.cancelledAt = new Date();
   reservation.cancelReason = pickString(reason) || "Admin hủy đơn.";
   reservation.UpdatedAt = new Date();
+
+  if (reservation.depositPaidAt && Number(reservation.depositAmount) > 0 && reservation.userId) {
+    const { refundDepositIfHeld } = require("./reservationService");
+    await refundDepositIfHeld(reservation);
+  }
+
   await reservation.save();
 
   return getReservationDetail(reservationId);
-}
-
-async function listDeals(query = {}) {
-  const { page, limit, skip } = parsePagination(query);
-  const search = pickString(query.search);
-  const status = pickString(query.status);
-
-  const filter = {};
-  if (status !== "" && Number.isFinite(Number(status))) {
-    filter.status = Number(status);
-  }
-
-  if (search) {
-    const regex = new RegExp(escapeRegex(search), "i");
-    const [users, shops, products] = await Promise.all([
-      User.find({
-        $or: [{ FullName: regex }, { UserName: regex }, { Email: regex }],
-      })
-        .select("_id")
-        .lean(),
-      ShopProfile.find({ $or: [{ shopName: regex }, { shopUsername: regex }] })
-        .select("_id")
-        .lean(),
-      Product.find({ ProductName: regex }).select("_id").lean(),
-    ]);
-
-    filter.$or = [
-      { userId: { $in: users.map((item) => item._id) } },
-      { shopId: { $in: shops.map((item) => item._id) } },
-      { productId: { $in: products.map((item) => item._id) } },
-      { note: regex },
-      { sellerNote: regex },
-    ];
-  }
-
-  const [total, deals] = await Promise.all([
-    DealOffer.countDocuments(filter),
-    DealOffer.find(filter).sort({ CreatedAt: -1 }).skip(skip).limit(limit).lean(),
-  ]);
-
-  const userIds = [...new Set(deals.map((item) => String(item.userId || "")).filter(Boolean))];
-  const shopIds = [...new Set(deals.map((item) => String(item.shopId || "")).filter(Boolean))];
-  const productIds = [...new Set(deals.map((item) => String(item.productId || "")).filter(Boolean))];
-
-  const [users, shops, products] = await Promise.all([
-    userIds.length
-      ? User.find({ _id: { $in: userIds } }).select("FullName UserName Email Phone").lean()
-      : [],
-    shopIds.length
-      ? ShopProfile.find({ _id: { $in: shopIds } }).select("shopName shopUsername userId").lean()
-      : [],
-    productIds.length
-      ? Product.find({ _id: { $in: productIds } }).select("ProductName Thumbnail").lean()
-      : [],
-  ]);
-
-  const sellerIds = shops.map((shop) => shop.userId).filter(Boolean);
-  const sellers = sellerIds.length
-    ? await User.find({ _id: { $in: sellerIds } }).select("FullName UserName").lean()
-    : [];
-
-  const userMap = new Map(users.map((item) => [String(item._id), item]));
-  const shopMap = new Map(shops.map((item) => [String(item._id), item]));
-  const productMap = new Map(products.map((item) => [String(item._id), item]));
-  const sellerMap = new Map(sellers.map((item) => [String(item._id), item]));
-
-  const items = deals.map((deal) => {
-    const buyer = userMap.get(String(deal.userId || ""));
-    const shop = shopMap.get(String(deal.shopId || ""));
-    const seller = shop ? sellerMap.get(String(shop.userId || "")) : null;
-    const product = productMap.get(String(deal.productId || ""));
-
-    return {
-      id: String(deal._id),
-      status: deal.status,
-      statusLabel: DEAL_STATUS_LABELS[deal.status] || "Không rõ",
-      originalPrice: Number(deal.originalPrice) || 0,
-      offeredPrice: Number(deal.offeredPrice) || 0,
-      lastOfferBy: deal.lastOfferBy,
-      lastOfferByLabel:
-        Number(deal.lastOfferBy) === DEAL_OFFER_BY.SELLER ? "Người bán" : "Người mua",
-      quantity: Number(deal.quantity) || 1,
-      note: deal.note || "",
-      sellerNote: deal.sellerNote || "",
-      createdAt: deal.CreatedAt || null,
-      respondedAt: deal.respondedAt || null,
-      buyer: buyer
-        ? {
-            id: String(buyer._id),
-            fullName: buyer.FullName || "",
-            userName: buyer.UserName || "",
-            email: buyer.Email || "",
-          }
-        : null,
-      seller: seller
-        ? {
-            id: String(seller._id),
-            fullName: seller.FullName || "",
-            userName: seller.UserName || "",
-          }
-        : null,
-      shop: shop
-        ? {
-            id: String(shop._id),
-            shopName: shop.shopName || "",
-          }
-        : null,
-      product: product
-        ? {
-            id: String(product._id),
-            productName: product.ProductName || "",
-            thumbnail: product.Thumbnail || "",
-          }
-        : null,
-    };
-  });
-
-  return {
-    items,
-    pagination: {
-      page,
-      limit,
-      total,
-      totalPages: Math.max(1, Math.ceil(total / limit)),
-    },
-  };
-}
-
-async function getDealDetail(dealId) {
-  const objectId = toObjectId(dealId);
-  if (!objectId) {
-    throw createServiceError("ID deal không hợp lệ.", 400);
-  }
-
-  const deal = await DealOffer.findById(objectId).lean();
-  if (!deal) {
-    throw createServiceError("Không tìm thấy deal.", 404);
-  }
-
-  const [buyer, shop, product, variant] = await Promise.all([
-    deal.userId ? User.findById(deal.userId).lean() : null,
-    deal.shopId ? ShopProfile.findById(deal.shopId).lean() : null,
-    deal.productId ? Product.findById(deal.productId).lean() : null,
-    deal.variantId ? ProductVariant.findById(deal.variantId).lean() : null,
-  ]);
-
-  const seller = shop?.userId ? await User.findById(shop.userId).lean() : null;
-
-  return {
-    id: String(deal._id),
-    status: deal.status,
-    statusLabel: DEAL_STATUS_LABELS[deal.status] || "Không rõ",
-    originalPrice: Number(deal.originalPrice) || 0,
-    offeredPrice: Number(deal.offeredPrice) || 0,
-    discountPercent: Number(deal.discountPercent) || 0,
-    lastOfferBy: deal.lastOfferBy,
-    lastOfferByLabel:
-      Number(deal.lastOfferBy) === DEAL_OFFER_BY.SELLER ? "Người bán" : "Người mua",
-    quantity: Number(deal.quantity) || 1,
-    note: deal.note || "",
-    sellerNote: deal.sellerNote || "",
-    respondedAt: deal.respondedAt || null,
-    reservationId: deal.reservationId ? String(deal.reservationId) : "",
-    createdAt: deal.CreatedAt || null,
-    buyer: buyer
-      ? {
-          id: String(buyer._id),
-          fullName: buyer.FullName || "",
-          userName: buyer.UserName || "",
-          email: buyer.Email || "",
-          phone: buyer.Phone || "",
-        }
-      : null,
-    seller: seller
-      ? {
-          id: String(seller._id),
-          fullName: seller.FullName || "",
-          userName: seller.UserName || "",
-        }
-      : null,
-    shop: shop
-      ? {
-          id: String(shop._id),
-          shopName: shop.shopName || "",
-          shopUsername: shop.shopUsername || "",
-        }
-      : null,
-    product: product
-      ? {
-          id: String(product._id),
-          productName: product.ProductName || "",
-          thumbnail: product.Thumbnail || "",
-        }
-      : null,
-    variant: variant
-      ? {
-          id: String(variant._id),
-          variantName: variant.VariantName || "",
-          price: Number(variant.Price) || 0,
-        }
-      : null,
-  };
-}
-
-async function lockDeal(dealId, reason = "") {
-  const objectId = toObjectId(dealId);
-  if (!objectId) {
-    throw createServiceError("ID deal không hợp lệ.", 400);
-  }
-
-  const deal = await DealOffer.findById(objectId);
-  if (!deal) {
-    throw createServiceError("Không tìm thấy deal.", 404);
-  }
-
-  deal.status = DEAL_OFFER_STATUS.REJECTED;
-  deal.sellerNote = pickString(reason) || deal.sellerNote || "Admin khóa deal bất thường.";
-  deal.respondedAt = new Date();
-  deal.UpdatedAt = new Date();
-  await deal.save();
-
-  return getDealDetail(dealId);
 }
 
 module.exports = {
@@ -934,9 +825,6 @@ module.exports = {
   listReservations,
   getReservationDetail,
   cancelReservation,
-  listDeals,
-  getDealDetail,
-  lockDeal,
   SHOP_STATUS,
   PRODUCT_STATUS,
 };

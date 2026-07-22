@@ -75,10 +75,18 @@ export default function SellerVerificationStatusScreen({
           </View>
         ) : null}
 
-        {verification?.address ? (
+        {verification?.addressHeThong ||
+        verification?.systemAddress ||
+        verification?.DiaChiHeThong ||
+        verification?.address ? (
           <View style={styles.metaBlock}>
             <Text style={styles.metaLabel}>Địa chỉ</Text>
-            <Text style={styles.metaValue}>{verification.address}</Text>
+            <Text style={styles.metaValue}>
+              {verification.addressHeThong ||
+                verification.systemAddress ||
+                verification.DiaChiHeThong ||
+                verification.address}
+            </Text>
           </View>
         ) : null}
 
@@ -152,7 +160,7 @@ const styles = StyleSheet.create({
   },
   primaryButton: {
     marginTop: 8,
-    backgroundColor: '#0f766e',
+    backgroundColor: '#076F32',
     borderRadius: 12,
     paddingVertical: 14,
     alignItems: 'center',

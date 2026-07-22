@@ -27,14 +27,22 @@ function formatDateTime(iso) {
 }
 
 function normalizeReview(item) {
+  const images = Array.isArray(item.images)
+    ? item.images
+        .map((image) => image.imageUrl || image.ImageUrl || image)
+        .filter((uri) => typeof uri === 'string' && uri)
+    : [];
+  const imageUrl = images[0] || item.imageUrl || item.image_url || '';
+
   return {
     id: String(item.id),
-    storeId: item.storeId || '',
+    storeId: item.storeId || item.shopId || '',
     storeName: item.storeName || 'Gian hàng',
     productName: item.productName || '',
     rating: Number(item.rating) || 5,
     comment: item.comment || '',
-    imageUrl: item.imageUrl || '',
+    images,
+    imageUrl,
     createdAt: item.createdAt || item.created_at || new Date().toISOString(),
   };
 }
@@ -133,7 +141,7 @@ export default function MyReviewsScreen({ refreshKey = 0 }) {
   if (isLoading) {
     return (
       <View style={styles.loaderWrap}>
-        <ActivityIndicator color="#0f766e" />
+        <ActivityIndicator color="#076F32" />
       </View>
     );
   }
@@ -156,7 +164,18 @@ export default function MyReviewsScreen({ refreshKey = 0 }) {
               <StarRating rating={item.rating} size={14} showValue />
             </View>
             <Text style={styles.comment}>{item.comment}</Text>
-            {item.imageUrl ? (
+            {item.images?.length > 0 ? (
+              <View style={styles.reviewImagesRow}>
+                {item.images.map((uri, index) => (
+                  <Image
+                    key={`${item.id}-img-${index}`}
+                    source={{ uri }}
+                    style={styles.reviewImage}
+                    resizeMode="cover"
+                  />
+                ))}
+              </View>
+            ) : item.imageUrl ? (
               <Image source={{ uri: item.imageUrl }} style={styles.reviewImage} resizeMode="cover" />
             ) : null}
             <Text style={styles.date}>{formatDateTime(item.createdAt)}</Text>
@@ -260,11 +279,16 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   reviewImage: {
-    marginTop: 10,
-    width: '100%',
-    height: 160,
+    width: 96,
+    height: 96,
     borderRadius: 10,
     backgroundColor: '#e2e8f0',
+  },
+  reviewImagesRow: {
+    marginTop: 10,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
   },
   date: {
     marginTop: 8,
@@ -283,10 +307,10 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#e8f3f1',
+    backgroundColor: '#E6F4EC',
   },
   editButtonText: {
-    color: '#0f766e',
+    color: '#076F32',
     fontSize: 13,
     fontWeight: '800',
   },
@@ -391,7 +415,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#0f766e',
+    backgroundColor: '#076F32',
   },
   modalSaveText: {
     color: '#ffffff',

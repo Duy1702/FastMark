@@ -24,14 +24,42 @@ import {
 } from '../viewmodel/auth/authSlice';
 import { store } from '../core/store';
 import {
+  clearCachedIdToken,
   serializeAuthUser,
   subscribeToAuthChanges,
+  waitForAuthReady,
 } from '../repository/authRepository';
 import { getFirebaseInitConfigError } from '../core/config/firebaseApp';
 import { getStartupDiagnostics, validateGoogleOAuthSetup } from '../core/utils/authDiagnostics';
+import { usePushNotifications } from '../hooks/usePushNotifications';
 import { authLogger as log } from '../core/utils/logger';
+import { startTopupDeepLinkListener } from '../viewmodel/wallet/topupSession';
 
-const WELCOME_DURATION_MS = 3500;
+const WELCOME_DURATION_MS = 1200;
+
+function applyFirebaseUser(dispatch, firebaseUser, { loadProfileIfNeeded = true } = {}) {
+  if (!firebaseUser) {
+    clearCachedIdToken();
+    dispatch(setUnauthenticated());
+    return;
+  }
+
+  const user = serializeAuthUser(firebaseUser);
+  const state = store.getState().auth;
+  const previousUid = state.user?.uid;
+
+  log.info('session:authenticated', { uid: user.uid });
+  dispatch(setAuthUser(user));
+
+  if (!loadProfileIfNeeded) {
+    return;
+  }
+
+  if (previousUid !== user.uid || (!state.profile && state.profileStatus !== 'loading')) {
+    log.info('session:load-profile', { uid: user.uid });
+    dispatch(loadUserProfile());
+  }
+}
 
 export default function FastmarkApp() {
   const dispatch = useDispatch();
@@ -41,11 +69,30 @@ export default function FastmarkApp() {
   const pendingGoogle = useSelector(selectPendingGoogle);
   const needsEmailVerification = useSelector(selectNeedsEmailVerification);
   const [showWelcome, setShowWelcome] = useState(true);
+  const [profileLoadTimedOut, setProfileLoadTimedOut] = useState(false);
+
+  usePushNotifications({
+    enabled: status === 'authenticated',
+  });
 
   useEffect(() => {
     const timer = setTimeout(() => setShowWelcome(false), WELCOME_DURATION_MS);
     return () => clearTimeout(timer);
   }, []);
+
+  useEffect(() => {
+    // PayOS return: fastmark://wallet/topup-result → emit cho Profile/Shop panel sync.
+    return startTopupDeepLinkListener();
+  }, []);
+
+  useEffect(() => {
+    if (!(status === 'authenticated' && profileStatus === 'loading' && !profile)) {
+      setProfileLoadTimedOut(false);
+      return undefined;
+    }
+    const timer = setTimeout(() => setProfileLoadTimedOut(true), 8000);
+    return () => clearTimeout(timer);
+  }, [status, profileStatus, profile]);
 
   useEffect(() => {
     log.info('startup');
@@ -64,41 +111,52 @@ export default function FastmarkApp() {
 
     dispatch(setAuthChecking());
 
-    try {
-      const unsubscribe = subscribeToAuthChanges(
-        (firebaseUser) => {
-          if (!firebaseUser) {
-            log.info('session:unauthenticated');
-            dispatch(setUnauthenticated());
-            return;
-          }
+    let cancelled = false;
+    let unsubscribe = () => {};
 
-          const user = serializeAuthUser(firebaseUser);
-          const currentUid = store.getState().auth.user?.uid;
-
-          log.info('session:authenticated', { uid: user.uid });
-          dispatch(setAuthUser(user));
-
-          if (currentUid !== user.uid) {
-            log.info('session:load-profile', { uid: user.uid });
-            dispatch(loadUserProfile());
-          }
-        },
-        (error) => {
-          log.fail('[AUTH] onAuthStateChanged subscribe callback ERROR', error);
-          // Only surface listener errors when there is no active session.
-          if (!store.getState().auth.user) {
-            dispatch(setConfigError(error?.message || 'Không khởi tạo được xác thực.'));
-          }
+    (async () => {
+      try {
+        // Đợi Firebase restore session từ AsyncStorage trước khi tin user=null.
+        const restoredUser = await waitForAuthReady(12000);
+        if (cancelled) {
+          return;
         }
-      );
 
-      return unsubscribe;
-    } catch (error) {
-      log.fail('startup:init-auth-failed', error);
-      dispatch(setConfigError(error?.message || 'Không khởi tạo được xác thực.'));
-      return undefined;
-    }
+        if (restoredUser) {
+          applyFirebaseUser(dispatch, restoredUser);
+        } else {
+          log.info('session:unauthenticated');
+          clearCachedIdToken();
+          dispatch(setUnauthenticated());
+        }
+
+        unsubscribe = subscribeToAuthChanges(
+          (firebaseUser) => {
+            if (cancelled) {
+              return;
+            }
+            applyFirebaseUser(dispatch, firebaseUser);
+          },
+          (error) => {
+            log.fail('[AUTH] onAuthStateChanged subscribe callback ERROR', error);
+            if (!store.getState().auth.user) {
+              dispatch(setConfigError(error?.message || 'Không khởi tạo được xác thực.'));
+            }
+          }
+        );
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+        log.fail('startup:init-auth-failed', error);
+        dispatch(setConfigError(error?.message || 'Không khởi tạo được xác thực.'));
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
   }, [dispatch]);
 
   if (showWelcome) {
@@ -107,7 +165,7 @@ export default function FastmarkApp() {
         <View style={styles.welcomeScreen}>
           <StatusBar style="light" />
           <Image
-            source={require('../../assets/welcome.png')}
+            source={require('../../assets/welcome.jpg')}
             style={styles.welcomeImage}
             resizeMode="contain"
           />
@@ -121,7 +179,7 @@ export default function FastmarkApp() {
       <SafeAreaProvider>
         <SafeAreaView style={styles.loadingScreen} edges={['top', 'bottom', 'left', 'right']}>
           <StatusBar style="dark" />
-          <ActivityIndicator size="large" color="#0f766e" />
+          <ActivityIndicator size="large" color="#076F32" />
           <Text style={styles.loadingText}>Đang kiểm tra đăng nhập...</Text>
         </SafeAreaView>
       </SafeAreaProvider>
@@ -139,14 +197,23 @@ export default function FastmarkApp() {
     );
   }
 
-  if (status === 'authenticated' && profileStatus === 'loading' && !profile) {
+  if (status === 'authenticated' && profileStatus === 'loading' && !profile && !profileLoadTimedOut) {
     return (
       <SafeAreaProvider>
         <SafeAreaView style={styles.loadingScreen} edges={['top', 'bottom', 'left', 'right']}>
           <StatusBar style="dark" />
-          <ActivityIndicator size="large" color="#0f766e" />
+          <ActivityIndicator size="large" color="#076F32" />
           <Text style={styles.loadingText}>Đang tải hồ sơ...</Text>
         </SafeAreaView>
+      </SafeAreaProvider>
+    );
+  }
+
+  if (status === 'authenticated' && profileStatus === 'loading' && !profile && profileLoadTimedOut) {
+    return (
+      <SafeAreaProvider>
+        <StatusBar style="dark" />
+        <AuthenticatedHome />
       </SafeAreaProvider>
     );
   }

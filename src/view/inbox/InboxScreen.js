@@ -7,6 +7,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useSelector } from 'react-redux';
 
 import {
@@ -14,10 +15,16 @@ import {
 } from '../../api/messageApi';
 import { getMyNotificationsOnBackend } from '../../api/notificationApi';
 import { getSellerConversationsOnBackend } from '../../api/sellerOpsApi';
+import {
+  notificationMatchesAudience,
+  prependUniqueNotification,
+} from '../../core/utils/notificationRealtime';
+import { useNotificationSocket } from '../../hooks/useNotificationSocket';
 import { getCurrentUserIdToken } from '../../repository/authRepository';
 import { selectIsSeller } from '../../viewmodel/auth/authSelectors';
 import AvatarBadge from '../shared/components/AvatarBadge';
 import ClearableSearchField from '../shared/components/ClearableSearchField';
+import { useScreenInsets } from '../../hooks/useScreenInsets';
 import ChatScreen from './ChatScreen';
 import NotificationDetailScreen from './NotificationDetailScreen';
 
@@ -110,8 +117,10 @@ export default function InboxScreen({
   buyerView = false,
   messagesOnly = false,
   onViewShop,
+  onBack = null,
   onNavigationStateChange,
 }) {
+  const insets = useScreenInsets();
   const isSeller = useSelector(selectIsSeller);
   const showSellerInbox = isSeller && !buyerView;
   const [activeTab, setActiveTab] = useState('messages');
@@ -175,6 +184,22 @@ export default function InboxScreen({
       setIsLoadingNotifications(false);
     }
   }, []);
+
+  const handleRealtimeNotification = useCallback((notification) => {
+    if (messagesOnly || activeTab !== 'notifications') {
+      return;
+    }
+    if (!notificationMatchesAudience(notification, 'buyer')) {
+      return;
+    }
+
+    setNotifications((current) => prependUniqueNotification(current, notification));
+  }, [activeTab, messagesOnly]);
+
+  useNotificationSocket({
+    enabled: !messagesOnly && activeTab === 'notifications',
+    onNotificationNew: handleRealtimeNotification,
+  });
 
   useEffect(() => {
     if (buyerView || messagesOnly || activeTab === 'messages') {
@@ -271,7 +296,15 @@ export default function InboxScreen({
   return (
     <View style={styles.screen}>
       <View style={styles.header}>
+        {onBack ? (
+          <Pressable onPress={onBack} hitSlop={8} style={styles.backBtn}>
+            <Ionicons name="arrow-back" size={22} color="#0f172a" />
+          </Pressable>
+        ) : (
+          <View style={styles.backBtn} />
+        )}
         <Text style={styles.title}>Tin nhắn</Text>
+        <View style={styles.backBtn} />
       </View>
 
       {showInboxTabs ? (
@@ -311,7 +344,7 @@ export default function InboxScreen({
       {buyerView || listTab === 'messages' ? (
         isLoading ? (
           <View style={styles.centered}>
-            <ActivityIndicator color="#0d7377" />
+            <ActivityIndicator color="#076F32" />
           </View>
         ) : (
           <FlatList
@@ -319,7 +352,10 @@ export default function InboxScreen({
             keyExtractor={(item) =>
               showSellerInbox ? String(item.id) : getConversationKey(item)
             }
-            contentContainerStyle={styles.listContent}
+            contentContainerStyle={[
+              styles.listContent,
+              { paddingBottom: insets.nestedScrollPaddingBottom },
+            ]}
             keyboardShouldPersistTaps="handled"
             ListEmptyComponent={
               <View style={styles.emptyBox}>
@@ -415,13 +451,16 @@ export default function InboxScreen({
         )
       ) : isLoadingNotifications ? (
         <View style={styles.centered}>
-          <ActivityIndicator color="#0d7377" />
+          <ActivityIndicator color="#076F32" />
         </View>
       ) : (
         <FlatList
           data={notifications}
           keyExtractor={(item) => String(item.id)}
-          contentContainerStyle={styles.listContent}
+          contentContainerStyle={[
+            styles.listContent,
+            { paddingBottom: insets.nestedScrollPaddingBottom },
+          ]}
           ListEmptyComponent={
             <View style={styles.emptyBox}>
               <Text style={styles.emptyIcon}>🔔</Text>
@@ -455,8 +494,27 @@ export default function InboxScreen({
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#f8fafc' },
-  header: { paddingTop: 12, paddingHorizontal: 16, paddingBottom: 12, backgroundColor: '#ffffff' },
-  title: { fontSize: 24, fontWeight: '900', color: '#0f172a' },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingTop: 12,
+    paddingHorizontal: 12,
+    paddingBottom: 12,
+    backgroundColor: '#ffffff',
+  },
+  backBtn: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  title: {
+    flex: 1,
+    fontSize: 20,
+    fontWeight: '900',
+    color: '#0f172a',
+    textAlign: 'center',
+  },
   tabRow: {
     flexDirection: 'row',
     gap: 8,
@@ -472,15 +530,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: '#f1f5f9',
   },
-  tabItemActive: { backgroundColor: '#e8f3f1' },
+  tabItemActive: { backgroundColor: '#E6F4EC' },
   tabText: { fontWeight: '700', color: '#64748b' },
-  tabTextActive: { color: '#0d7377' },
+  tabTextActive: { color: '#076F32' },
   searchBar: {
     paddingHorizontal: 16,
     paddingTop: 10,
     paddingBottom: 12,
   },
-  listContent: { paddingHorizontal: 16, paddingBottom: 32 },
+  listContent: { paddingHorizontal: 16 },
   listItem: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -496,7 +554,7 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: '#e8f3f1',
+    backgroundColor: '#E6F4EC',
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
@@ -506,7 +564,7 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
   },
-  avatarText: { fontSize: 18, fontWeight: '800', color: '#0d7377' },
+  avatarText: { fontSize: 18, fontWeight: '800', color: '#076F32' },
   listBody: { flex: 1, minWidth: 0, gap: 4 },
   listTopRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 8, alignItems: 'center' },
   listTitle: { fontSize: 15, fontWeight: '800', color: '#0f172a', flex: 1 },
@@ -521,7 +579,7 @@ const styles = StyleSheet.create({
   listTime: { fontSize: 12, color: '#94a3b8', fontWeight: '600' },
   listPreview: { color: '#64748b', fontSize: 13, fontWeight: '500', lineHeight: 18 },
   listPreviewUnsent: { fontStyle: 'italic', color: '#475569' },
-  listPreviewNew: { color: '#0d7377', fontWeight: '700' },
+  listPreviewNew: { color: '#076F32', fontWeight: '700' },
   unreadDot: {
     width: 10,
     height: 10,
